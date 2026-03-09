@@ -1,0 +1,41 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+bin/
+dist/
+/runer-api
+
+# Test artifacts
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Air live reload
+tmp/
+spec/
