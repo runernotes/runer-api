@@ -11,7 +11,7 @@ import (
 )
 
 func Connect(cfg *Config) (*gorm.DB, error) {
-	logLevel := logger.Warn
+	var logLevel logger.LogLevel
 	switch cfg.DatabaseLogLevel {
 	case "silent":
 		logLevel = logger.Silent
