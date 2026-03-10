@@ -133,6 +133,50 @@ All values can also be provided as environment variables — Viper reads from bo
 
 ---
 
+## Using as a library
+
+Add to your `go.mod`:
+
+```bash
+go get github.com/runernotes/runer-api@v0.1.0
+```
+
+Only packages under `pkg/` are intended for external use:
+
+```go
+import (
+    "github.com/runernotes/runer-api/pkg/app"
+    "github.com/runernotes/runer-api/pkg/config"
+    "github.com/runernotes/runer-api/pkg/logger"
+)
+```
+
+`internal/` packages are locked to this module and cannot be imported externally.
+
+---
+
+## Releases
+
+Releases are driven by **git tags**. The Go module proxy picks up tags automatically — no compiled binaries are shipped.
+
+To cut a new release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+This triggers the release workflow which:
+1. Verifies the module builds cleanly
+2. Creates a GitHub Release with auto-generated notes from commit history
+
+**Versioning follows [semver](https://semver.org/):**
+- `v0.x` — API is still settling, breaking changes are possible
+- `v1.0.0` — API stability guaranteed
+- `v2+` — major breaking change; import path must change to `.../v2`
+
+---
+
 ## Running locally
 
 **Prerequisites:** Go 1.23+, PostgreSQL
