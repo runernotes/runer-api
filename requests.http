@@ -1,0 +1,175 @@
+## Runer API - Full Flow Test
+## Flow: Register → Magic Link → Verify → Use Notes → Refresh → Logout
+
+@baseUrl = http://localhost:8080
+@email = test@email.dk
+
+# ─────────────────────────────────────────────
+# Step 1: Register a new user
+# ─────────────────────────────────────────────
+### Register
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+    "email": "{{email}}",
+    "name": "Jack Burton"
+}
+
+# ─────────────────────────────────────────────
+# Step 2: Request a magic link (sent to email)
+# ─────────────────────────────────────────────
+### Request Magic Link
+POST {{baseUrl}}/api/v1/auth/magic-link
+Content-Type: application/json
+
+{
+    "email": "{{email}}"
+}
+
+# ─────────────────────────────────────────────
+# Step 3: Verify the token from the magic link
+# Paste the token received in the email below
+# ─────────────────────────────────────────────
+### Verify Token → returns access_token + refresh_token
+# @name verify
+POST {{baseUrl}}/api/v1/auth/verify
+Content-Type: application/json
+
+{
+    "token": "PASTE_TOKEN_HERE"
+}
+
+# Save the tokens from the verify response before continuing:
+@accessToken = {{verify.response.body.access_token}}
+@refreshToken = {{verify.response.body.refresh_token}}
+
+# If dispatch doesn't support variable capture, set these manually:
+# @accessToken = eyJ...
+# @refreshToken = eyJ...
+
+# ─────────────────────────────────────────────
+# Step 4: Verify redirect (browser/deep-link flow)
+# ─────────────────────────────────────────────
+### Verify Redirect (redirects to runer://auth/verify?token=...)
+GET {{baseUrl}}/api/v1/auth/verify-redirect?token=PASTE_TOKEN_HERE
+
+# ─────────────────────────────────────────────
+# Step 5: Notes — create/upsert a note
+# encrypted_payload must be valid base64
+# ─────────────────────────────────────────────
+### Upsert Note (create new)
+# @name upsertNote
+PUT {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000001
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+    "encrypted_payload": "SGVsbG8gV29ybGQgLSB0aGlzIGlzIGEgdGVzdCBub3Rl"
+}
+
+# ─────────────────────────────────────────────
+# Step 6: Notes — list all notes
+# ─────────────────────────────────────────────
+### Get All Notes
+GET {{baseUrl}}/api/v1/notes
+Authorization: Bearer {{accessToken}}
+
+# ─────────────────────────────────────────────
+# Step 7: Notes — list with pagination + since filter
+# ─────────────────────────────────────────────
+### Get Notes (with since + limit)
+GET {{baseUrl}}/api/v1/notes?since=2024-01-01T00:00:00Z&limit=10
+Authorization: Bearer {{accessToken}}
+
+# ─────────────────────────────────────────────
+# Step 8: Notes — get a single note by ID
+# ─────────────────────────────────────────────
+### Get Note by ID
+GET {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000001
+Authorization: Bearer {{accessToken}}
+
+# ─────────────────────────────────────────────
+# Step 9: Notes — update an existing note (with conflict detection)
+# Set base_version to the updated_at from the previous upsert response
+# ─────────────────────────────────────────────
+### Upsert Note (update with base_version for conflict detection)
+PUT {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000001
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+    "encrypted_payload": "VXBkYXRlZCBub3RlIGNvbnRlbnQgaGVyZQ==",
+    "base_version": "2024-01-01T12:00:00Z"
+}
+
+# ─────────────────────────────────────────────
+# Step 10: Notes — delete a note
+# ─────────────────────────────────────────────
+### Delete Note
+DELETE {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000001
+Authorization: Bearer {{accessToken}}
+
+# ─────────────────────────────────────────────
+# Step 11: Confirm deletion — list should show tombstone
+# ─────────────────────────────────────────────
+### Get All Notes (deleted note should appear in tombstones)
+GET {{baseUrl}}/api/v1/notes
+Authorization: Bearer {{accessToken}}
+
+# ─────────────────────────────────────────────
+# Step 12: Refresh the access token
+# ─────────────────────────────────────────────
+### Refresh Tokens
+# @name refresh
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+    "refresh_token": "{{refreshToken}}"
+}
+
+# ─────────────────────────────────────────────
+# Step 13: Logout (invalidates the refresh token)
+# ─────────────────────────────────────────────
+### Logout
+POST {{baseUrl}}/api/v1/auth/logout
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+    "refresh_token": "{{refreshToken}}"
+}
+
+# ─────────────────────────────────────────────
+# Error Cases
+# ─────────────────────────────────────────────
+
+### Register with invalid email → 400
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+    "email": "not-an-email",
+    "name": "Bad User"
+}
+
+### Get Notes without auth → 401
+GET {{baseUrl}}/api/v1/notes
+
+### Get Note with invalid UUID → 400
+GET {{baseUrl}}/api/v1/notes/not-a-uuid
+Authorization: Bearer {{accessToken}}
+
+### Get Note that doesn't exist → 404
+GET {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000099
+Authorization: Bearer {{accessToken}}
+
+### Upsert Note with invalid base64 payload → 400
+PUT {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000002
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+    "encrypted_payload": "this is not base64!!!"
+}
