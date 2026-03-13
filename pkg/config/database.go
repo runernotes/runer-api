@@ -2,9 +2,9 @@ package config
 
 import (
 	"github.com/rs/zerolog/log"
-	"github.com/runernotes/runer-api/internal/auth"
-	"github.com/runernotes/runer-api/internal/notes"
-	"github.com/runernotes/runer-api/internal/users"
+	"github.com/runernotes/runer-api-core/internal/auth"
+	"github.com/runernotes/runer-api-core/internal/notes"
+	"github.com/runernotes/runer-api-core/internal/users"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

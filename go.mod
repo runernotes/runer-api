@@ -1,4 +1,4 @@
-module github.com/runernotes/runer-api
+module github.com/runernotes/runer-api-core
 
 go 1.25.0
 

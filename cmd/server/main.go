@@ -2,9 +2,9 @@ package main
 
 import (
 	"github.com/rs/zerolog/log"
-	"github.com/runernotes/runer-api/pkg/app"
-	"github.com/runernotes/runer-api/pkg/config"
-	"github.com/runernotes/runer-api/pkg/logger"
+	"github.com/runernotes/runer-api-core/pkg/app"
+	"github.com/runernotes/runer-api-core/pkg/config"
+	"github.com/runernotes/runer-api-core/pkg/logger"
 )
 
 func main() {

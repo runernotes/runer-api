@@ -8,7 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
-	"github.com/runernotes/runer-api/internal/api"
+	"github.com/runernotes/runer-api-core/internal/api"
 )
 
 type AuthHandler struct {

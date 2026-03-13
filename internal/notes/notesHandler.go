@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
-	"github.com/runernotes/runer-api/internal/api"
-	internalmw "github.com/runernotes/runer-api/internal/middleware"
+	"github.com/runernotes/runer-api-core/internal/api"
+	internalmw "github.com/runernotes/runer-api-core/internal/middleware"
 )
 
 type NotesHandler struct {
