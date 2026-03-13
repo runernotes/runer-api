@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/runernotes/runer-api-core/internal/users"
-	"github.com/runernotes/runer-api-core/internal/utils"
+	"github.com/runernotes/runer-api/internal/users"
+	"github.com/runernotes/runer-api/internal/utils"
 )
 
 type AuthService struct {

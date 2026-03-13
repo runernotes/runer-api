@@ -10,9 +10,9 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	internalpkg "github.com/runernotes/runer-api-core/internal"
-	internalmw "github.com/runernotes/runer-api-core/internal/middleware"
-	"github.com/runernotes/runer-api-core/pkg/config"
+	internalpkg "github.com/runernotes/runer-api/internal"
+	internalmw "github.com/runernotes/runer-api/internal/middleware"
+	"github.com/runernotes/runer-api/pkg/config"
 	"gorm.io/gorm"
 )
 

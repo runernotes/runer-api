@@ -2,13 +2,13 @@ package internal
 
 import (
 	"github.com/labstack/echo/v5"
-	"github.com/runernotes/runer-api-core/internal/auth"
-	"github.com/runernotes/runer-api-core/internal/email"
-	internalmw "github.com/runernotes/runer-api-core/internal/middleware"
-	"github.com/runernotes/runer-api-core/internal/notes"
-	"github.com/runernotes/runer-api-core/internal/users"
-	"github.com/runernotes/runer-api-core/internal/utils"
-	"github.com/runernotes/runer-api-core/pkg/config"
+	"github.com/runernotes/runer-api/internal/auth"
+	"github.com/runernotes/runer-api/internal/email"
+	internalmw "github.com/runernotes/runer-api/internal/middleware"
+	"github.com/runernotes/runer-api/internal/notes"
+	"github.com/runernotes/runer-api/internal/users"
+	"github.com/runernotes/runer-api/internal/utils"
+	"github.com/runernotes/runer-api/pkg/config"
 	"gorm.io/gorm"
 )
 

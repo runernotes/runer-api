@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
-	"github.com/runernotes/runer-api-core/internal/api"
-	"github.com/runernotes/runer-api-core/internal/utils"
+	"github.com/runernotes/runer-api/internal/api"
+	"github.com/runernotes/runer-api/internal/utils"
 )
 
 const (
