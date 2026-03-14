@@ -1,5 +1,8 @@
 .PHONY: lint test e2e build run docker-build docker-run verify
 
+lint:
+	golangci-lint run
+
 test:
 	go test -v -race -coverprofile=coverage.out $(shell go list ./... | grep -v /e2e)
 
@@ -21,5 +24,5 @@ run:
 docker-run:
 	docker run --rm -p 8080:8080 --env-file .env runer-api
 
-verify: test e2e build clean
+verify: lint test e2e build clean
 	@echo "All checks passed."

@@ -96,7 +96,7 @@ func TestRegisterInvalidEmail(t *testing.T) {
 		Expect().
 		Status(http.StatusBadRequest).
 		JSON().Object().
-		ValueEqual("code", "VALIDATION_ERROR")
+		HasValue("code", "VALIDATION_ERROR")
 
 	// The mock must not have been called a second time — validation failed before the service.
 	if mockEmail.callCount() != 1 {
@@ -132,7 +132,7 @@ func TestRegisterMissingName(t *testing.T) {
 		Expect().
 		Status(http.StatusBadRequest).
 		JSON().Object().
-		ValueEqual("code", "VALIDATION_ERROR")
+		HasValue("code", "VALIDATION_ERROR")
 
 	// The mock must not have been called a second time — validation failed before the service.
 	if mockEmail.callCount() != 1 {
