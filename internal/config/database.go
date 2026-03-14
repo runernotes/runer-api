@@ -35,7 +35,6 @@ func Connect(cfg *Config) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	// Connection pool settings
 	sqlDB.SetMaxIdleConns(cfg.DatabaseMaxIdleConns)
 	sqlDB.SetMaxOpenConns(cfg.DatabaseMaxOpenConns)
 	sqlDB.SetConnMaxLifetime(cfg.DatabaseConnMaxLifetime)
@@ -46,14 +45,13 @@ func Connect(cfg *Config) (*gorm.DB, error) {
 }
 
 func Migrate(db *gorm.DB) error {
-	err := db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&users.User{},
 		&notes.Note{},
 		&notes.NoteTombstone{},
 		&auth.MagicLinkToken{},
 		&auth.RefreshToken{},
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 	log.Info().Msg("Database migrated successfully")

@@ -3,25 +3,38 @@ package internal
 import (
 	"github.com/labstack/echo/v5"
 	"github.com/runernotes/runer-api/internal/auth"
+	"github.com/runernotes/runer-api/internal/config"
 	"github.com/runernotes/runer-api/internal/email"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
 	"github.com/runernotes/runer-api/internal/notes"
 	"github.com/runernotes/runer-api/internal/users"
 	"github.com/runernotes/runer-api/internal/utils"
-	"github.com/runernotes/runer-api/pkg/config"
 	"gorm.io/gorm"
 )
 
-func RegisterRoutes(e *echo.Echo, db *gorm.DB, config *config.Config) {
-	jwtManager := utils.NewJWTManager(config.JWTSecret, config.JWTTokenDuration, config.JWTRefreshTokenDuration)
+// RouteOptions allows optional overrides when registering routes (e.g. for testing).
+type RouteOptions struct {
+	EmailSender email.Sender
+}
+
+func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...RouteOptions) {
+	jwtManager := utils.NewJWTManager(cfg.JWTSecret, cfg.JWTTokenDuration, cfg.JWTRefreshTokenDuration)
 	authMW := internalmw.AuthMiddleware(jwtManager)
 
 	usersRepository := users.NewUsersRepository(db)
-	emailSender := email.NewConsoleSender()
-	emailService := email.NewEmailService(emailSender)
+
+	var opt RouteOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	sender := opt.EmailSender
+	if sender == nil {
+		sender = email.NewConsoleSender()
+	}
+	emailService := email.NewEmailService(sender)
 
 	authRepository := auth.NewAuthRepository(db)
-	authService := auth.NewAuthService(authRepository, usersRepository, emailService, jwtManager, config.MagicLinkTokenDuration, config.JWTRefreshTokenDuration)
+	authService := auth.NewAuthService(authRepository, usersRepository, emailService, jwtManager, cfg.MagicLinkTokenDuration, cfg.JWTRefreshTokenDuration)
 	authHandler := auth.NewAuthHandler(authService)
 
 	notesRepository := notes.NewNotesRepository(db)

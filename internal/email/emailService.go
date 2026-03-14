@@ -6,11 +6,15 @@ type EmailService struct {
 	emailSender emailSender
 }
 
-type emailSender interface {
+// Sender is the interface for sending emails. Implement it to inject a custom sender (e.g. in tests).
+type Sender interface {
 	SendMagicLinkEmail(ctx context.Context, email string, token string) error
 }
 
-func NewEmailService(emailSender emailSender) *EmailService {
+// emailSender is an alias kept for internal use.
+type emailSender = Sender
+
+func NewEmailService(emailSender Sender) *EmailService {
 	return &EmailService{emailSender: emailSender}
 }
 

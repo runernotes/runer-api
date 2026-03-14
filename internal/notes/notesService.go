@@ -15,7 +15,6 @@ type repository interface {
 	FindByID(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error)
 	Upsert(ctx context.Context, note *Note) error
 	Delete(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
-	CountLiveNotes(ctx context.Context, userID uuid.UUID) (int64, error)
 	FindTombstonesSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]NoteTombstone, error)
 	FindAllTombstones(ctx context.Context, userID uuid.UUID) ([]NoteTombstone, error)
 	PurgeExpiredTombstones(ctx context.Context, olderThan time.Time) (int64, error)

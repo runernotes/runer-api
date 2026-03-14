@@ -45,15 +45,13 @@ jobs:
           path: coverage.out
 
   build:
-    name: Build
+    name: Build Docker image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build
-        run: go build -v ./cmd/server/...
+          context: .
+          push: false

@@ -1,16 +1,27 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/runernotes/runer-api/pkg/app"
-	"github.com/runernotes/runer-api/pkg/config"
-	"github.com/runernotes/runer-api/pkg/logger"
+	internalpkg "github.com/runernotes/runer-api/internal"
+	"github.com/runernotes/runer-api/internal/config"
+	internalmw "github.com/runernotes/runer-api/internal/middleware"
+	"github.com/runernotes/runer-api/internal/validator"
 )
 
 func main() {
-	logger.Init()
+	output := zerolog.ConsoleWriter{Out: os.Stdout, NoColor: false}
+	log.Logger = zerolog.New(output).With().Timestamp().Logger()
 
 	var cfg config.Config
+
 	if err := config.Load(&cfg); err != nil {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
@@ -24,8 +35,29 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to migrate database")
 	}
 
-	a := app.New(db, &cfg)
-	if err := a.Start(cfg.Port); err != nil {
+	e := echo.New()
+	e.Validator = validator.New()
+
+	e.Use(middleware.Recover())
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"Authorization", "Content-Type"},
+	}))
+	e.Use(internalmw.RequestLogger())
+	e.Use(internalmw.RateLimiter())
+	e.Use(internalmw.ConsoleAnalytics())
+
+	internalpkg.RegisterRoutes(e, db, &cfg)
+
+	for _, r := range e.Router().Routes() {
+		log.Info().Str("method", r.Method).Str("path", r.Path).Msg("route registered")
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := (echo.StartConfig{Address: cfg.Port, HideBanner: true}).Start(ctx, e); err != nil {
 		log.Fatal().Err(err).Msg("server failed")
 	}
 }
