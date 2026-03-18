@@ -13,6 +13,6 @@ func NewConsoleSender() *ConsoleSender {
 }
 
 func (s *ConsoleSender) SendMagicLinkEmail(ctx context.Context, email string, token string) error {
-	log.Info().Msgf("Sending magic link email to %s with token %s", email, token)
+	log.Info().Msgf("Sending magic link email to %s with token runer://auth/verify?token=%s", email, token)
 	return nil
 }
