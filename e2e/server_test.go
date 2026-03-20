@@ -11,7 +11,6 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	internalpkg "github.com/runernotes/runer-api/internal"
 	"github.com/runernotes/runer-api/internal/config"
-	internalmw "github.com/runernotes/runer-api/internal/middleware"
 	"github.com/runernotes/runer-api/internal/validator"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -98,7 +97,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *mockEmailSender) {
 	e := echo.New()
 	e.Validator = validator.New()
 	e.Use(middleware.Recover())
-	e.Use(internalmw.RequestLogger())
+	e.Use(middleware.RequestLogger())
 
 	internalpkg.RegisterRoutes(e, db, cfg, internalpkg.RouteOptions{
 		EmailSender: mock,

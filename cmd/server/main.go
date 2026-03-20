@@ -44,9 +44,8 @@ func main() {
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
-	e.Use(internalmw.RequestLogger())
+	e.Use(middleware.RequestLogger())
 	e.Use(internalmw.RateLimiter())
-	e.Use(internalmw.ConsoleAnalytics())
 
 	internalpkg.RegisterRoutes(e, db, &cfg)
 
