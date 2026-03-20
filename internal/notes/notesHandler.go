@@ -171,8 +171,9 @@ func (h *NotesHandler) Upsert(c *echo.Context) error {
 
 	note, err := h.service.UpsertNote(c.Request().Context(), userID, noteID, payloadBytes, req.BaseVersion)
 	if err != nil {
-		if errors.Is(err, ErrConflict) {
-			return c.JSON(http.StatusConflict, api.ErrorResponse{Error: "conflict: server version is newer", Code: "CONFLICT"})
+		var conflictErr *ConflictError
+		if errors.As(err, &conflictErr) {
+			return c.JSON(http.StatusConflict, toNoteResponse(conflictErr.ServerNote))
 		}
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to save note", Code: "INTERNAL_ERROR"})
 	}

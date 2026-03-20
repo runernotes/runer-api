@@ -94,7 +94,7 @@ func (s *NotesService) UpsertNote(ctx context.Context, userID uuid.UUID, noteID 
 			return nil, err
 		}
 		if existing != nil && existing.UpdatedAt.After(*baseVersion) {
-			return nil, ErrConflict
+			return nil, &ConflictError{ServerNote: existing}
 		}
 	}
 
