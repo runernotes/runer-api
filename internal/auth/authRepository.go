@@ -8,35 +8,55 @@ import (
 	"gorm.io/gorm"
 )
 
+// AuthRepository provides database access for authentication-related entities.
 type AuthRepository struct {
 	db *gorm.DB
 }
 
+// NewAuthRepository constructs an AuthRepository backed by the given GORM database.
 func NewAuthRepository(db *gorm.DB) *AuthRepository {
 	return &AuthRepository{db: db}
 }
 
+// CreateMagicLinkToken persists a new magic-link token record.
 func (r *AuthRepository) CreateMagicLinkToken(ctx context.Context, token MagicLinkToken) error {
 	return r.db.WithContext(ctx).Create(&token).Error
 }
 
-func (r *AuthRepository) GetMagicLinkToken(ctx context.Context, token string) (MagicLinkToken, error) {
-	var ml MagicLinkToken
-	if err := r.db.WithContext(ctx).Where("token = ?", token).First(&ml).Error; err != nil {
-		return MagicLinkToken{}, err
+// VerifyAndConsumeMagicLinkToken atomically validates and marks a magic-link token
+// as used in a single UPDATE ... RETURNING statement, eliminating the race window
+// that existed when verification and consumption were separate round-trips.
+//
+// It returns the associated user_id on success. If no row is updated — because the
+// token does not exist, has already been used, or has expired — ErrInvalidToken is
+// returned. Callers must not perform additional expiry or used_at checks; the
+// database enforces those invariants atomically.
+func (r *AuthRepository) VerifyAndConsumeMagicLinkToken(ctx context.Context, tokenHash string) (uuid.UUID, error) {
+	type result struct {
+		TokenID uuid.UUID
+		UserID  uuid.UUID
 	}
-	return ml, nil
-}
+	var row result
 
-func (r *AuthRepository) MarkMagicLinkTokenAsUsed(ctx context.Context, tokenId uuid.UUID) error {
-	result := r.db.WithContext(ctx).Model(&MagicLinkToken{}).Where("token_id = ? AND used_at IS NULL", tokenId).Update("used_at", time.Now())
-	if result.Error != nil {
-		return result.Error
+	// The magic_link_tokens table stores the hash in the "token" column (GORM default
+	// mapping for the Token field on MagicLinkToken). The UPDATE atomically checks
+	// that the token is unused and not yet expired before setting used_at.
+	tx := r.db.WithContext(ctx).Raw(`
+		UPDATE magic_link_tokens
+		SET used_at = NOW()
+		WHERE token = ?
+		  AND used_at IS NULL
+		  AND expires_at > NOW()
+		RETURNING token_id, user_id
+	`, tokenHash).Scan(&row)
+
+	if tx.Error != nil {
+		return uuid.Nil, tx.Error
 	}
-	if result.RowsAffected == 0 {
-		return ErrTokenAlreadyUsed
+	if tx.RowsAffected == 0 {
+		return uuid.Nil, ErrInvalidToken
 	}
-	return nil
+	return row.UserID, nil
 }
 
 func (r *AuthRepository) CreateRefreshToken(ctx context.Context, token RefreshToken) error {

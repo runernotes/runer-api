@@ -22,8 +22,10 @@ type AuthService struct {
 
 type repository interface {
 	CreateMagicLinkToken(ctx context.Context, token MagicLinkToken) error
-	GetMagicLinkToken(ctx context.Context, token string) (MagicLinkToken, error)
-	MarkMagicLinkTokenAsUsed(ctx context.Context, tokenId uuid.UUID) error
+	// VerifyAndConsumeMagicLinkToken atomically marks the token as used and returns
+	// the associated user_id. Returns ErrInvalidToken when zero rows are matched
+	// (token not found, already used, or expired).
+	VerifyAndConsumeMagicLinkToken(ctx context.Context, tokenHash string) (uuid.UUID, error)
 	CreateRefreshToken(ctx context.Context, token RefreshToken) error
 	GetRefreshTokenByHash(ctx context.Context, hash string) (*RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, tokenID uuid.UUID) error
@@ -93,23 +95,29 @@ func (s *AuthService) createAndSendMagicLink(ctx context.Context, email string, 
 	return s.emailSender.SendMagicLinkEmail(ctx, email, rawToken)
 }
 
+// LoginWithMagicLink verifies a raw magic-link token and, on success, issues a new
+// access token and refresh token pair. The verification is performed atomically
+// in the database to prevent replay attacks from concurrent requests.
 func (s *AuthService) LoginWithMagicLink(ctx context.Context, token string) (*LoginResponse, error) {
 	hashedToken := utils.ComputeSHA256(token)
-	ml, err := s.repository.GetMagicLinkToken(ctx, hashedToken)
+
+	// VerifyAndConsumeMagicLinkToken atomically validates the token (checking
+	// used_at IS NULL and expires_at > NOW()) and marks it as used in one
+	// UPDATE...RETURNING statement. This eliminates the read-check-write race
+	// window that existed when three separate DB round-trips were used.
+	userID, err := s.repository.VerifyAndConsumeMagicLinkToken(ctx, hashedToken)
 	if err != nil {
-		return nil, ErrInvalidToken
-	}
-	if ml.ExpiresAt.Before(time.Now()) {
-		return nil, ErrExpiredToken
-	}
-	if ml.UsedAt != nil {
-		return nil, ErrTokenAlreadyUsed
-	}
-	if err = s.repository.MarkMagicLinkTokenAsUsed(ctx, ml.TokenID); err != nil {
 		return nil, err
 	}
 
-	accessToken, err := s.jwtManager.GenerateAccessToken(ml.UserID, ml.Email)
+	// Fetch the user to obtain the email address needed for JWT generation.
+	// The magic_link_tokens table no longer needs to be the source of email truth.
+	user, err := s.usersRepository.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	accessToken, err := s.jwtManager.GenerateAccessToken(userID, user.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +128,7 @@ func (s *AuthService) LoginWithMagicLink(ctx context.Context, token string) (*Lo
 	}
 
 	rt := RefreshToken{
-		UserID:    ml.UserID,
+		UserID:    userID,
 		TokenHash: refreshTokenHash,
 		ExpiresAt: time.Now().Add(s.refreshTokenDuration),
 	}
