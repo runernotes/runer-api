@@ -17,6 +17,7 @@ type NoteResponse struct {
 	EncryptedPayload string     `json:"encrypted_payload"`
 	CreatedAt        *time.Time `json:"created_at"`
 	UpdatedAt        *time.Time `json:"updated_at"`
+	TrashedAt        *time.Time `json:"trashed_at"`
 }
 
 type TombstoneResponse struct {
@@ -37,6 +38,7 @@ func toNoteResponse(n *Note) NoteResponse {
 		EncryptedPayload: base64.StdEncoding.EncodeToString(n.EncryptedPayload),
 		CreatedAt:        &n.CreatedAt,
 		UpdatedAt:        &n.UpdatedAt,
+		TrashedAt:        n.TrashedAt,
 	}
 }
 

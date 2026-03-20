@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/spf13/viper"
@@ -18,17 +20,23 @@ type Config struct {
 	DatabaseMaxIdleConns    int           `mapstructure:"DATABASE_MAX_IDLE_CONNS"`
 	DatabaseMaxOpenConns    int           `mapstructure:"DATABASE_MAX_OPEN_CONNS"`
 	DatabaseConnMaxLifetime time.Duration `mapstructure:"DATABASE_CONN_MAX_LIFETIME"`
-	AppBaseURL string `mapstructure:"APP_BASE_URL"`
+	AppBaseURL              string        `mapstructure:"APP_BASE_URL"`
 }
 
 func (c *Config) IsDevelopment() bool {
 	return c.Env == "development"
 }
 
+func (c *Config) Validate() error {
+	if c.JWTSecret == "" {
+		return errors.New("JWT_SECRET must be set")
+	}
+	return nil
+}
+
 func setDefaults() {
 	viper.SetDefault("PORT", ":8080")
 	viper.SetDefault("ENV", "development")
-	viper.SetDefault("JWT_SECRET", "dev-secret-change-me-in-production")
 	viper.SetDefault("JWT_TOKEN_DURATION", "1h")
 	viper.SetDefault("JWT_REFRESH_TOKEN_DURATION", "168h")
 	viper.SetDefault("MAGIC_LINK_TOKEN_DURATION", "1h")
@@ -45,5 +53,16 @@ func Load(target any) error {
 	viper.AutomaticEnv()
 	setDefaults()
 	_ = viper.ReadInConfig()
-	return viper.Unmarshal(target)
+
+	if err := viper.Unmarshal(target); err != nil {
+		return fmt.Errorf("config: failed to unmarshal configuration: %w", err)
+	}
+
+	if cfg, ok := target.(*Config); ok {
+		if err := cfg.Validate(); err != nil {
+			return fmt.Errorf("config: invalid configuration: %w", err)
+		}
+	}
+
+	return nil
 }

@@ -14,7 +14,9 @@ type repository interface {
 	FindUpdatedSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]Note, error)
 	FindByID(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error)
 	Upsert(ctx context.Context, note *Note) error
-	Delete(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
+	Trash(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
+	Restore(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
+	Purge(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
 	FindTombstonesSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]NoteTombstone, error)
 	FindAllTombstones(ctx context.Context, userID uuid.UUID) ([]NoteTombstone, error)
 	PurgeExpiredTombstones(ctx context.Context, olderThan time.Time) (int64, error)
@@ -109,6 +111,20 @@ func (s *NotesService) UpsertNote(ctx context.Context, userID uuid.UUID, noteID 
 	return s.repository.FindByID(ctx, noteID, userID)
 }
 
-func (s *NotesService) DeleteNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error {
-	return s.repository.Delete(ctx, noteID, userID)
+// TrashNote soft-deletes a note by setting its trashed_at timestamp.
+func (s *NotesService) TrashNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error {
+	return s.repository.Trash(ctx, noteID, userID)
+}
+
+// RestoreNote clears the trashed_at timestamp and returns the updated note.
+func (s *NotesService) RestoreNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error) {
+	if err := s.repository.Restore(ctx, noteID, userID); err != nil {
+		return nil, err
+	}
+	return s.repository.FindByID(ctx, noteID, userID)
+}
+
+// PurgeNote hard-deletes a note and creates a tombstone for sync clients.
+func (s *NotesService) PurgeNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error {
+	return s.repository.Purge(ctx, noteID, userID)
 }

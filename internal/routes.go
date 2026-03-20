@@ -58,5 +58,7 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 	notesGroup.GET("", notesHandler.GetAll)
 	notesGroup.GET("/:note_id", notesHandler.GetByID)
 	notesGroup.PUT("/:note_id", notesHandler.Upsert)
-	notesGroup.DELETE("/:note_id", notesHandler.Delete)
+	notesGroup.DELETE("/:note_id", notesHandler.Trash)
+	notesGroup.POST("/:note_id/restore", notesHandler.Restore)
+	notesGroup.DELETE("/:note_id/purge", notesHandler.Purge)
 }

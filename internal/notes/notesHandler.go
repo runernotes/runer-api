@@ -27,7 +27,9 @@ type service interface {
 	GetNotesSince(ctx context.Context, userID uuid.UUID, since *time.Time, cursor *NoteCursor, limit int) ([]Note, []NoteTombstone, bool, error)
 	GetNoteByID(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error)
 	UpsertNote(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, encryptedPayload []byte, baseVersion *time.Time) (*Note, error)
-	DeleteNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
+	TrashNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
+	RestoreNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error)
+	PurgeNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
 }
 
 func NewNotesHandler(service service) *NotesHandler {
@@ -178,7 +180,8 @@ func (h *NotesHandler) Upsert(c *echo.Context) error {
 	return c.JSON(http.StatusOK, toNoteResponse(note))
 }
 
-func (h *NotesHandler) Delete(c *echo.Context) error {
+// Trash soft-deletes a note by setting its trashed_at timestamp.
+func (h *NotesHandler) Trash(c *echo.Context) error {
 	userID, err := getUserID(c)
 	if err != nil {
 		return c.JSON(http.StatusUnauthorized, api.ErrorResponse{Error: "unauthorized", Code: "UNAUTHORIZED"})
@@ -189,12 +192,56 @@ func (h *NotesHandler) Delete(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, api.ErrorResponse{Error: "invalid note_id", Code: "INVALID_PARAM"})
 	}
 
-	err = h.service.DeleteNote(c.Request().Context(), noteID, userID)
+	if err = h.service.TrashNote(c.Request().Context(), noteID, userID); err != nil {
+		if errors.Is(err, ErrNoteNotFound) {
+			return c.JSON(http.StatusNotFound, api.ErrorResponse{Error: "note not found", Code: "NOT_FOUND"})
+		}
+		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to trash note", Code: "INTERNAL_ERROR"})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// Restore clears the trashed_at timestamp on a note and returns the updated note.
+func (h *NotesHandler) Restore(c *echo.Context) error {
+	userID, err := getUserID(c)
+	if err != nil {
+		return c.JSON(http.StatusUnauthorized, api.ErrorResponse{Error: "unauthorized", Code: "UNAUTHORIZED"})
+	}
+
+	noteID, err := uuid.Parse(c.Param("note_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, api.ErrorResponse{Error: "invalid note_id", Code: "INVALID_PARAM"})
+	}
+
+	note, err := h.service.RestoreNote(c.Request().Context(), noteID, userID)
 	if err != nil {
 		if errors.Is(err, ErrNoteNotFound) {
 			return c.JSON(http.StatusNotFound, api.ErrorResponse{Error: "note not found", Code: "NOT_FOUND"})
 		}
-		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to delete note", Code: "INTERNAL_ERROR"})
+		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to restore note", Code: "INTERNAL_ERROR"})
+	}
+
+	return c.JSON(http.StatusOK, toNoteResponse(note))
+}
+
+// Purge hard-deletes a note and creates a tombstone for sync clients.
+func (h *NotesHandler) Purge(c *echo.Context) error {
+	userID, err := getUserID(c)
+	if err != nil {
+		return c.JSON(http.StatusUnauthorized, api.ErrorResponse{Error: "unauthorized", Code: "UNAUTHORIZED"})
+	}
+
+	noteID, err := uuid.Parse(c.Param("note_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, api.ErrorResponse{Error: "invalid note_id", Code: "INVALID_PARAM"})
+	}
+
+	if err = h.service.PurgeNote(c.Request().Context(), noteID, userID); err != nil {
+		if errors.Is(err, ErrNoteNotFound) {
+			return c.JSON(http.StatusNotFound, api.ErrorResponse{Error: "note not found", Code: "NOT_FOUND"})
+		}
+		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to purge note", Code: "INTERNAL_ERROR"})
 	}
 
 	return c.NoContent(http.StatusNoContent)

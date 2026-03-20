@@ -84,7 +84,49 @@ func (r *NotesRepository) Upsert(ctx context.Context, note *Note) error {
 	return nil
 }
 
-func (r *NotesRepository) Delete(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error {
+// Trash soft-deletes a note by setting trashed_at to the current time.
+// Returns ErrNoteNotFound if no matching row exists for the given noteID and userID.
+func (r *NotesRepository) Trash(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error {
+	now := time.Now().UTC()
+	result := r.db.WithContext(ctx).Model(&Note{}).
+		Where("note_id = ? AND user_id = ?", noteID, userID).
+		Updates(map[string]any{
+			"trashed_at": now,
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNoteNotFound
+	}
+	return nil
+}
+
+// Restore clears trashed_at on a note, making it live again.
+// Returns ErrNoteNotFound if no matching row exists for the given noteID and userID.
+func (r *NotesRepository) Restore(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error {
+	now := time.Now().UTC()
+	// gorm.Expr("NULL") is required to force GORM to write a NULL value;
+	// GORM silently skips nil pointer values in map updates.
+	result := r.db.WithContext(ctx).Model(&Note{}).
+		Where("note_id = ? AND user_id = ?", noteID, userID).
+		Updates(map[string]any{
+			"trashed_at": gorm.Expr("NULL"),
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNoteNotFound
+	}
+	return nil
+}
+
+// Purge hard-deletes a note row and creates a NoteTombstone within a single transaction.
+// Returns ErrNoteNotFound if no matching row exists for the given noteID and userID.
+func (r *NotesRepository) Purge(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Where("note_id = ? AND user_id = ?", noteID, userID).Delete(&Note{})
 		if result.Error != nil {

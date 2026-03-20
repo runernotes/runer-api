@@ -7,11 +7,12 @@ import (
 )
 
 type Note struct {
-	ID               uuid.UUID `gorm:"column:note_id;primaryKey;type:uuid"`
-	UserID           uuid.UUID `gorm:"column:user_id;type:uuid;not null;index:idx_user_updated,priority:1"`
-	EncryptedPayload []byte    `gorm:"column:encrypted_payload;type:bytea;not null"`
-	CreatedAt        time.Time `gorm:"autoCreateTime"`
-	UpdatedAt        time.Time `gorm:"autoUpdateTime;index:idx_user_updated,priority:2"`
+	ID               uuid.UUID  `gorm:"column:note_id;primaryKey;type:uuid"`
+	UserID           uuid.UUID  `gorm:"column:user_id;type:uuid;not null;index:idx_user_updated,priority:1"`
+	EncryptedPayload []byte     `gorm:"column:encrypted_payload;type:bytea;not null"`
+	CreatedAt        time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt        time.Time  `gorm:"autoUpdateTime;index:idx_user_updated,priority:2"`
+	TrashedAt        *time.Time `gorm:"column:trashed_at;index"`
 }
 
 type NoteTombstone struct {
