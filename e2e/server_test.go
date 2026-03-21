@@ -15,6 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"gorm.io/gorm"
 )
 
 // mockEmailSender captures the magic link token instead of sending a real email.
@@ -24,7 +25,7 @@ type mockEmailSender struct {
 	count int
 }
 
-func (m *mockEmailSender) SendMagicLinkEmail(_ context.Context, _ string, token string) error {
+func (m *mockEmailSender) SendMagicLinkEmail(_ context.Context, _ string, token string, _ bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.token = token
@@ -46,7 +47,7 @@ func (m *mockEmailSender) callCount() int {
 
 // newTestServer starts a real Postgres container, migrates the schema, wires the full Echo
 // app with a mockEmailSender, and returns an httptest.Server ready for requests.
-func newTestServer(t *testing.T) (*httptest.Server, *mockEmailSender) {
+func newTestServer(t *testing.T) (*httptest.Server, *mockEmailSender, *gorm.DB) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -106,5 +107,5 @@ func newTestServer(t *testing.T) (*httptest.Server, *mockEmailSender) {
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 
-	return srv, mock
+	return srv, mock, db
 }

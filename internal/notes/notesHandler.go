@@ -23,6 +23,10 @@ type NotesHandler struct {
 const defaultPageSize = 100
 const maxPageSize = 500
 
+// deltaPageSize is the number of notes (and tombstones) returned per page in a delta sync
+// (GET /notes?since=...). The handler uses limit+1 to probe for the next page.
+const deltaPageSize = 100
+
 type service interface {
 	GetNotesSince(ctx context.Context, userID uuid.UUID, since *time.Time, cursor *NoteCursor, limit int) ([]Note, []NoteTombstone, bool, error)
 	GetNoteByID(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error)
@@ -104,13 +108,25 @@ func (h *NotesHandler) GetAll(c *echo.Context) error {
 		tombstoneResponses = append(tombstoneResponses, toTombstoneResponse(t))
 	}
 
+	// Build next_cursor when there are more pages. The cursor is derived from the last note
+	// on this page. If this page had no notes but tombstones signalled hasMore, we derive
+	// the cursor from the last tombstone instead (using deleted_at as the keyset anchor).
 	var nextCursor *string
-	if hasMore && len(notes) > 0 {
-		last := notes[len(notes)-1]
-		raw, err := json.Marshal(NoteCursor{AfterUpdatedAt: last.UpdatedAt, AfterNoteID: last.ID})
-		if err == nil {
-			encoded := base64.StdEncoding.EncodeToString(raw)
-			nextCursor = &encoded
+	if hasMore {
+		var cur *NoteCursor
+		if len(notes) > 0 {
+			last := notes[len(notes)-1]
+			cur = &NoteCursor{AfterUpdatedAt: last.UpdatedAt, AfterNoteID: last.ID}
+		} else if len(tombstones) > 0 {
+			last := tombstones[len(tombstones)-1]
+			cur = &NoteCursor{AfterUpdatedAt: last.DeletedAt, AfterNoteID: last.NoteID}
+		}
+		if cur != nil {
+			raw, err := json.Marshal(cur)
+			if err == nil {
+				encoded := base64.StdEncoding.EncodeToString(raw)
+				nextCursor = &encoded
+			}
 		}
 	}
 

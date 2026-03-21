@@ -69,7 +69,7 @@ func newExpect(t *testing.T, srv *httptest.Server) *httpexpect.Expect {
 // TestTrashNote verifies that DELETE /:note_id sets trashed_at on the note.
 // After trashing, a GET returns 200 with a non-null trashed_at.
 func TestTrashNote(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -92,7 +92,7 @@ func TestTrashNote(t *testing.T) {
 
 // TestTrashNoteNotFound ensures DELETE on an unknown UUID returns 404.
 func TestTrashNoteNotFound(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -106,7 +106,7 @@ func TestTrashNoteNotFound(t *testing.T) {
 
 // TestRestoreNote verifies that POST /:note_id/restore clears trashed_at.
 func TestRestoreNote(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -128,7 +128,7 @@ func TestRestoreNote(t *testing.T) {
 
 // TestRestoreNoteNotFound ensures POST restore on an unknown UUID returns 404.
 func TestRestoreNoteNotFound(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -143,7 +143,7 @@ func TestRestoreNoteNotFound(t *testing.T) {
 // TestPurgeNote verifies that trashing then purging a note hard-deletes it and creates a
 // tombstone that appears in the next full sync.
 func TestPurgeNote(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -181,7 +181,7 @@ func TestPurgeNote(t *testing.T) {
 // TestPurgeNoteThatIsNotTrashed verifies that a note can be purged directly without being
 // trashed first. The note should disappear and a tombstone should be created.
 func TestPurgeNoteThatIsNotTrashed(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -213,7 +213,7 @@ func TestPurgeNoteThatIsNotTrashed(t *testing.T) {
 
 // TestPurgeNoteNotFound ensures DELETE purge on an unknown UUID returns 404.
 func TestPurgeNoteNotFound(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -228,7 +228,7 @@ func TestPurgeNoteNotFound(t *testing.T) {
 // TestDeltaSyncPicksUpTrash verifies that a delta sync (GET /notes?since=T0) includes the
 // trashed note (with non-null trashed_at) and no tombstones.
 func TestDeltaSyncPicksUpTrash(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -262,7 +262,7 @@ func TestDeltaSyncPicksUpTrash(t *testing.T) {
 // TestDeltaSyncPicksUpRestore verifies that after restoring a note a delta sync returns the
 // note with trashed_at: null.
 func TestDeltaSyncPicksUpRestore(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -298,7 +298,7 @@ func TestDeltaSyncPicksUpRestore(t *testing.T) {
 // TestDeltaSyncPicksUpPurge verifies that after purging a note a delta sync returns no notes
 // for that ID but includes a tombstone.
 func TestDeltaSyncPicksUpPurge(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	token := registerAndLogin(t, e, mock, uuid.NewString())
@@ -339,7 +339,7 @@ func TestDeltaSyncPicksUpPurge(t *testing.T) {
 // TestUserCannotTrashOtherUsersNote ensures User B receives 404 when attempting to trash a
 // note that belongs to User A.
 func TestUserCannotTrashOtherUsersNote(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	tokenA := registerAndLogin(t, e, mock, uuid.NewString())
@@ -357,7 +357,7 @@ func TestUserCannotTrashOtherUsersNote(t *testing.T) {
 // TestUserCannotPurgeOtherUsersNote ensures User B receives 404 when attempting to purge a
 // note that belongs to User A.
 func TestUserCannotPurgeOtherUsersNote(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	tokenA := registerAndLogin(t, e, mock, uuid.NewString())
@@ -375,7 +375,7 @@ func TestUserCannotPurgeOtherUsersNote(t *testing.T) {
 // TestUserCannotRestoreOtherUsersNote ensures User B receives 404 when attempting to restore
 // a trashed note that belongs to User A.
 func TestUserCannotRestoreOtherUsersNote(t *testing.T) {
-	srv, mock := newTestServer(t)
+	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	tokenA := registerAndLogin(t, e, mock, uuid.NewString())

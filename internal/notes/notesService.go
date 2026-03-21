@@ -12,12 +12,14 @@ type repository interface {
 	FindAll(ctx context.Context, userID uuid.UUID) ([]Note, error)
 	FindAllPaginated(ctx context.Context, userID uuid.UUID, limit int, afterUpdatedAt time.Time, afterNoteID uuid.UUID) ([]Note, error)
 	FindUpdatedSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]Note, error)
+	FindUpdatedSincePaginated(ctx context.Context, userID uuid.UUID, since time.Time, limit int, afterUpdatedAt time.Time, afterNoteID uuid.UUID) ([]Note, error)
 	FindByID(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error)
 	Upsert(ctx context.Context, note *Note) error
 	Trash(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
 	Restore(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
 	Purge(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
 	FindTombstonesSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]NoteTombstone, error)
+	FindTombstonesSincePaginated(ctx context.Context, userID uuid.UUID, since time.Time, limit int, afterDeletedAt time.Time, afterNoteID uuid.UUID) ([]NoteTombstone, error)
 	FindAllTombstones(ctx context.Context, userID uuid.UUID) ([]NoteTombstone, error)
 	PurgeExpiredTombstones(ctx context.Context, olderThan time.Time) (int64, error)
 }
@@ -32,27 +34,14 @@ func NewNotesService(repository repository) *NotesService {
 
 // GetNotesSince returns notes and tombstones for the user.
 //
-// When since is non-nil (delta sync), all notes updated after that time are returned with no
-// pagination — the result set is expected to be small.
+// When since is non-nil (delta sync), notes updated after that time are returned paginated
+// using cursor-based keyset pagination ordered by (updated_at ASC, note_id ASC). Tombstones
+// are likewise paginated by (deleted_at ASC, note_id ASC). Pass a non-nil cursor to continue
+// from a previous page. hasMore is true when there are additional pages to fetch.
 //
-// When since is nil (full sync), notes are paginated using cursor-based pagination ordered by
-// (updated_at ASC, note_id ASC). Pass a non-nil cursor to continue from a previous page.
-// Tombstones are always returned in full (they carry no payload and are small).
-// hasMore is true when there are additional pages to fetch.
+// When since is nil (full sync), notes are paginated using the same cursor-based mechanism
+// but across all notes, and all tombstones are returned on the first page only.
 func (s *NotesService) GetNotesSince(ctx context.Context, userID uuid.UUID, since *time.Time, cursor *NoteCursor, limit int) ([]Note, []NoteTombstone, bool, error) {
-	if since != nil {
-		notes, err := s.repository.FindUpdatedSince(ctx, userID, *since)
-		if err != nil {
-			return nil, nil, false, err
-		}
-		tombstones, err := s.repository.FindTombstonesSince(ctx, userID, *since)
-		if err != nil {
-			return nil, nil, false, err
-		}
-		return notes, tombstones, false, nil
-	}
-
-	// Full sync: paginate notes, return all tombstones.
 	afterUpdatedAt := time.Time{}
 	afterNoteID := uuid.Nil
 	if cursor != nil {
@@ -60,7 +49,36 @@ func (s *NotesService) GetNotesSince(ctx context.Context, userID uuid.UUID, sinc
 		afterNoteID = cursor.AfterNoteID
 	}
 
-	// Fetch one extra to determine if there is a next page.
+	if since != nil {
+		// Delta sync: paginate notes updated after since.
+		notes, err := s.repository.FindUpdatedSincePaginated(ctx, userID, *since, limit+1, afterUpdatedAt, afterNoteID)
+		if err != nil {
+			return nil, nil, false, err
+		}
+
+		hasMore := len(notes) > limit
+		if hasMore {
+			notes = notes[:limit]
+		}
+
+		// Tombstones are paginated using the same cursor's note_id as keyset anchor, but
+		// ordered by deleted_at. The cursor carries a single AfterUpdatedAt/AfterNoteID pair;
+		// for delta sync we apply the same note_id boundary to tombstones as well so that both
+		// collections advance together across pages.
+		tombstones, err := s.repository.FindTombstonesSincePaginated(ctx, userID, *since, limit+1, afterUpdatedAt, afterNoteID)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		hasTombstoneMore := len(tombstones) > limit
+		if hasTombstoneMore {
+			tombstones = tombstones[:limit]
+			hasMore = true
+		}
+
+		return notes, tombstones, hasMore, nil
+	}
+
+	// Full sync: paginate notes, return all tombstones on first page only.
 	notes, err := s.repository.FindAllPaginated(ctx, userID, limit+1, afterUpdatedAt, afterNoteID)
 	if err != nil {
 		return nil, nil, false, err

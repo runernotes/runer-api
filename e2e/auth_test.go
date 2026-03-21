@@ -14,7 +14,7 @@ import (
 //  4. Logout with the refresh token → 204
 //  5. Attempt to refresh using the revoked refresh token → 401
 func TestRegisterLoginLogout(t *testing.T) {
-	srv, mockEmail := newTestServer(t)
+	srv, mockEmail, _ := newTestServer(t)
 
 	e := httpexpect.WithConfig(httpexpect.Config{
 		BaseURL:  srv.URL,
@@ -72,7 +72,7 @@ func TestRegisterLoginLogout(t *testing.T) {
 // A valid request is sent first to confirm the server is healthy and the 400 is
 // caused specifically by the bad input, not a broken handler.
 func TestRegisterInvalidEmail(t *testing.T) {
-	srv, mockEmail := newTestServer(t)
+	srv, mockEmail, _ := newTestServer(t)
 
 	e := httpexpect.WithConfig(httpexpect.Config{
 		BaseURL:  srv.URL,
@@ -108,7 +108,7 @@ func TestRegisterInvalidEmail(t *testing.T) {
 // A valid request is sent first to confirm the server is healthy and the 400 is
 // caused specifically by the missing field, not a broken handler.
 func TestRegisterMissingName(t *testing.T) {
-	srv, mockEmail := newTestServer(t)
+	srv, mockEmail, _ := newTestServer(t)
 
 	e := httpexpect.WithConfig(httpexpect.Config{
 		BaseURL:  srv.URL,
@@ -143,7 +143,7 @@ func TestRegisterMissingName(t *testing.T) {
 // TestRegisterDuplicate ensures that registering with the same email a second time
 // returns 200 (to prevent email enumeration) but does NOT send another magic link.
 func TestRegisterDuplicate(t *testing.T) {
-	srv, mockEmail := newTestServer(t)
+	srv, mockEmail, _ := newTestServer(t)
 
 	e := httpexpect.WithConfig(httpexpect.Config{
 		BaseURL:  srv.URL,

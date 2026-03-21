@@ -98,12 +98,12 @@ func (m *mockUserRepository) FindByID(ctx context.Context, id uuid.UUID) (users.
 // --- mock email sender ---
 
 type mockEmailSender struct {
-	sendFn func(ctx context.Context, email string, token string) error
+	sendFn func(ctx context.Context, email string, token string, isNewUser bool) error
 }
 
-func (m *mockEmailSender) SendMagicLinkEmail(ctx context.Context, email string, token string) error {
+func (m *mockEmailSender) SendMagicLinkEmail(ctx context.Context, email string, token string, isNewUser bool) error {
 	if m.sendFn != nil {
-		return m.sendFn(ctx, email, token)
+		return m.sendFn(ctx, email, token, isNewUser)
 	}
 	return nil
 }

@@ -48,6 +48,22 @@ func (r *NotesRepository) FindUpdatedSince(ctx context.Context, userID uuid.UUID
 	return notes, nil
 }
 
+// FindUpdatedSincePaginated returns up to limit notes for the user whose updated_at is
+// strictly greater than since, ordered by (updated_at ASC, note_id ASC).
+// Pass zero values for afterUpdatedAt and afterNoteID to start from the first page.
+// Pass the last page's updated_at and note_id to continue from a previous page.
+func (r *NotesRepository) FindUpdatedSincePaginated(ctx context.Context, userID uuid.UUID, since time.Time, limit int, afterUpdatedAt time.Time, afterNoteID uuid.UUID) ([]Note, error) {
+	var notes []Note
+	q := r.db.WithContext(ctx).Where("user_id = ? AND updated_at > ?", userID, since)
+	if !afterUpdatedAt.IsZero() {
+		q = q.Where("(updated_at > ? OR (updated_at = ? AND note_id > ?))", afterUpdatedAt, afterUpdatedAt, afterNoteID)
+	}
+	if err := q.Order("updated_at ASC, note_id ASC").Limit(limit).Find(&notes).Error; err != nil {
+		return nil, err
+	}
+	return notes, nil
+}
+
 func (r *NotesRepository) FindByID(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error) {
 	var note Note
 	if err := r.db.WithContext(ctx).Where("note_id = ? AND user_id = ?", noteID, userID).First(&note).Error; err != nil {
@@ -153,6 +169,22 @@ func (r *NotesRepository) CountLiveNotes(ctx context.Context, userID uuid.UUID) 
 func (r *NotesRepository) FindTombstonesSince(ctx context.Context, userID uuid.UUID, since time.Time) ([]NoteTombstone, error) {
 	var tombstones []NoteTombstone
 	if err := r.db.WithContext(ctx).Where("user_id = ? AND deleted_at > ?", userID, since).Find(&tombstones).Error; err != nil {
+		return nil, err
+	}
+	return tombstones, nil
+}
+
+// FindTombstonesSincePaginated returns up to limit tombstones for the user whose deleted_at
+// is strictly greater than since, ordered by (deleted_at ASC, note_id ASC).
+// Pass zero values for afterDeletedAt and afterNoteID to start from the first page.
+// Pass the last page's deleted_at and note_id to continue from a previous page.
+func (r *NotesRepository) FindTombstonesSincePaginated(ctx context.Context, userID uuid.UUID, since time.Time, limit int, afterDeletedAt time.Time, afterNoteID uuid.UUID) ([]NoteTombstone, error) {
+	var tombstones []NoteTombstone
+	q := r.db.WithContext(ctx).Where("user_id = ? AND deleted_at > ?", userID, since)
+	if !afterDeletedAt.IsZero() {
+		q = q.Where("(deleted_at > ? OR (deleted_at = ? AND note_id > ?))", afterDeletedAt, afterDeletedAt, afterNoteID)
+	}
+	if err := q.Order("deleted_at ASC, note_id ASC").Limit(limit).Find(&tombstones).Error; err != nil {
 		return nil, err
 	}
 	return tombstones, nil

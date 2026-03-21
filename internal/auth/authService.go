@@ -39,7 +39,7 @@ type userRepository interface {
 }
 
 type emailSender interface {
-	SendMagicLinkEmail(ctx context.Context, email string, token string) error
+	SendMagicLinkEmail(ctx context.Context, email string, token string, isNewUser bool) error
 }
 
 func NewAuthService(repository repository, users userRepository, emailSender emailSender,
@@ -63,7 +63,7 @@ func (s *AuthService) Register(ctx context.Context, email string, name string) e
 		return err
 	}
 
-	return s.createAndSendMagicLink(ctx, email, user.ID)
+	return s.createAndSendMagicLink(ctx, email, user.ID, true)
 }
 
 func (s *AuthService) CreateMagicLink(ctx context.Context, email string) error {
@@ -75,10 +75,10 @@ func (s *AuthService) CreateMagicLink(ctx context.Context, email string) error {
 		return ErrUserNotFound
 	}
 
-	return s.createAndSendMagicLink(ctx, email, user.ID)
+	return s.createAndSendMagicLink(ctx, email, user.ID, false)
 }
 
-func (s *AuthService) createAndSendMagicLink(ctx context.Context, email string, userId uuid.UUID) error {
+func (s *AuthService) createAndSendMagicLink(ctx context.Context, email string, userId uuid.UUID, isNewUser bool) error {
 	rawToken, tokenHash, err := generateOpaqueToken()
 	if err != nil {
 		return err
@@ -92,7 +92,7 @@ func (s *AuthService) createAndSendMagicLink(ctx context.Context, email string, 
 	if err = s.repository.CreateMagicLinkToken(ctx, token); err != nil {
 		return err
 	}
-	return s.emailSender.SendMagicLinkEmail(ctx, email, rawToken)
+	return s.emailSender.SendMagicLinkEmail(ctx, email, rawToken, isNewUser)
 }
 
 // LoginWithMagicLink verifies a raw magic-link token and, on success, issues a new
