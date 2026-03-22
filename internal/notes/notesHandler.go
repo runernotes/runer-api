@@ -191,6 +191,9 @@ func (h *NotesHandler) Upsert(c *echo.Context) error {
 		if errors.As(err, &conflictErr) {
 			return c.JSON(http.StatusConflict, toNoteResponse(conflictErr.ServerNote))
 		}
+		if errors.Is(err, ErrNoteNotFound) {
+			return c.JSON(http.StatusNotFound, api.ErrorResponse{Error: "note not found", Code: "NOT_FOUND"})
+		}
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to save note", Code: "INTERNAL_ERROR"})
 	}
 

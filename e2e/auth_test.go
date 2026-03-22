@@ -4,25 +4,15 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/gavv/httpexpect/v2"
+	"github.com/google/uuid"
 )
 
-// TestRegisterLoginLogout covers the full auth lifecycle:
-//  1. Register a new user → magic link is sent (captured by mock)
-//  2. Verify the magic link token → receive access + refresh tokens
-//  3. Access a protected endpoint with the access token → 200
-//  4. Logout with the refresh token → 204
-//  5. Attempt to refresh using the revoked refresh token → 401
-func TestRegisterLoginLogout(t *testing.T) {
+// TestRegisterValid verifies that a well-formed registration request returns 200
+// and causes the mock email sender to capture a magic link token.
+func TestRegisterValid(t *testing.T) {
 	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
 
-	e := httpexpect.WithConfig(httpexpect.Config{
-		BaseURL:  srv.URL,
-		Reporter: httpexpect.NewRequireReporter(t),
-		Client:   srv.Client(),
-	})
-
-	// 1. Register
 	e.POST("/api/v1/auth/register").
 		WithJSON(map[string]string{
 			"email": "alice@example.com",
@@ -33,64 +23,18 @@ func TestRegisterLoginLogout(t *testing.T) {
 		JSON().Object().
 		ContainsKey("message")
 
-	// 2. Verify magic link → login
 	token := mockEmail.lastToken()
 	if token == "" {
 		t.Fatal("expected mock to capture a magic link token after register, got empty string")
 	}
-
-	loginResp := e.POST("/api/v1/auth/verify").
-		WithJSON(map[string]string{"token": token}).
-		Expect().
-		Status(http.StatusOK).
-		JSON().Object()
-
-	accessToken := loginResp.Value("access_token").String().NotEmpty().Raw()
-	refreshToken := loginResp.Value("refresh_token").String().NotEmpty().Raw()
-
-	// 3. Access a protected endpoint
-	e.GET("/api/v1/notes").
-		WithHeader("Authorization", "Bearer "+accessToken).
-		Expect().
-		Status(http.StatusOK)
-
-	// 4. Logout
-	e.POST("/api/v1/auth/logout").
-		WithHeader("Authorization", "Bearer "+accessToken).
-		WithJSON(map[string]string{"refresh_token": refreshToken}).
-		Expect().
-		Status(http.StatusNoContent)
-
-	// 5. Refresh with the now-revoked refresh token must fail
-	e.POST("/api/v1/auth/refresh").
-		WithJSON(map[string]string{"refresh_token": refreshToken}).
-		Expect().
-		Status(http.StatusUnauthorized)
 }
 
-// TestRegisterInvalidEmail ensures the validator rejects a malformed email address.
-// A valid request is sent first to confirm the server is healthy and the 400 is
-// caused specifically by the bad input, not a broken handler.
+// TestRegisterInvalidEmail verifies that a registration request with a malformed email
+// returns 400 with VALIDATION_ERROR and does not send a magic link.
 func TestRegisterInvalidEmail(t *testing.T) {
 	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
 
-	e := httpexpect.WithConfig(httpexpect.Config{
-		BaseURL:  srv.URL,
-		Reporter: httpexpect.NewRequireReporter(t),
-		Client:   srv.Client(),
-	})
-
-	// Baseline: a valid request must succeed so we know the handler is working.
-	e.POST("/api/v1/auth/register").
-		WithJSON(map[string]string{"email": "alice@example.com", "name": "Alice"}).
-		Expect().
-		Status(http.StatusOK)
-
-	if mockEmail.lastToken() == "" {
-		t.Fatal("baseline valid registration did not trigger a magic link")
-	}
-
-	// Negative: malformed email must be rejected before the service is reached.
 	e.POST("/api/v1/auth/register").
 		WithJSON(map[string]string{"email": "not-an-email", "name": "Alice"}).
 		Expect().
@@ -98,65 +42,58 @@ func TestRegisterInvalidEmail(t *testing.T) {
 		JSON().Object().
 		HasValue("code", "VALIDATION_ERROR")
 
-	// The mock must not have been called a second time — validation failed before the service.
-	if mockEmail.callCount() != 1 {
-		t.Errorf("expected 1 magic link sent (baseline only), got %d", mockEmail.callCount())
+	if mockEmail.callCount() != 0 {
+		t.Errorf("expected 0 magic links sent, got %d", mockEmail.callCount())
 	}
 }
 
-// TestRegisterMissingName ensures the validator rejects a request with no name field.
-// A valid request is sent first to confirm the server is healthy and the 400 is
-// caused specifically by the missing field, not a broken handler.
+// TestRegisterMissingName verifies that a registration request without a name field
+// returns 400 with VALIDATION_ERROR and does not send a magic link.
 func TestRegisterMissingName(t *testing.T) {
 	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
 
-	e := httpexpect.WithConfig(httpexpect.Config{
-		BaseURL:  srv.URL,
-		Reporter: httpexpect.NewRequireReporter(t),
-		Client:   srv.Client(),
-	})
-
-	// Baseline: a valid request must succeed so we know the handler is working.
 	e.POST("/api/v1/auth/register").
-		WithJSON(map[string]string{"email": "bob@example.com", "name": "Bob"}).
-		Expect().
-		Status(http.StatusOK)
-
-	if mockEmail.lastToken() == "" {
-		t.Fatal("baseline valid registration did not trigger a magic link")
-	}
-
-	// Negative: missing name must be rejected before the service is reached.
-	e.POST("/api/v1/auth/register").
-		WithJSON(map[string]string{"email": "bob2@example.com"}).
+		WithJSON(map[string]string{"email": "bob@example.com"}).
 		Expect().
 		Status(http.StatusBadRequest).
 		JSON().Object().
 		HasValue("code", "VALIDATION_ERROR")
 
-	// The mock must not have been called a second time — validation failed before the service.
-	if mockEmail.callCount() != 1 {
-		t.Errorf("expected 1 magic link sent (baseline only), got %d", mockEmail.callCount())
+	if mockEmail.callCount() != 0 {
+		t.Errorf("expected 0 magic links sent, got %d", mockEmail.callCount())
 	}
 }
 
-// TestRegisterDuplicate ensures that registering with the same email a second time
-// returns 200 (to prevent email enumeration) but does NOT send another magic link.
-func TestRegisterDuplicate(t *testing.T) {
+// TestRegisterEmptyBody verifies that a registration request with an empty JSON object
+// returns 400 with VALIDATION_ERROR and does not send a magic link.
+func TestRegisterEmptyBody(t *testing.T) {
 	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
 
-	e := httpexpect.WithConfig(httpexpect.Config{
-		BaseURL:  srv.URL,
-		Reporter: httpexpect.NewRequireReporter(t),
-		Client:   srv.Client(),
-	})
+	e.POST("/api/v1/auth/register").
+		WithJSON(map[string]string{}).
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "VALIDATION_ERROR")
+
+	if mockEmail.callCount() != 0 {
+		t.Errorf("expected 0 magic links sent, got %d", mockEmail.callCount())
+	}
+}
+
+// TestRegisterDuplicateEmail verifies that registering the same email twice returns 200
+// on both attempts (no user enumeration) but only issues a magic link for the first.
+func TestRegisterDuplicateEmail(t *testing.T) {
+	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
 
 	payload := map[string]string{
-		"email": "bob@example.com",
-		"name":  "Bob",
+		"email": "duplicate@example.com",
+		"name":  "Duplicate",
 	}
 
-	// First registration — succeeds and sends a magic link.
 	e.POST("/api/v1/auth/register").
 		WithJSON(payload).
 		Expect().
@@ -167,7 +104,7 @@ func TestRegisterDuplicate(t *testing.T) {
 		t.Fatal("expected magic link token after first registration")
 	}
 
-	// Second registration with same email — must still return 200 (no enumeration).
+	// Second registration with the same email must still return 200 (no enumeration).
 	e.POST("/api/v1/auth/register").
 		WithJSON(payload).
 		Expect().
@@ -177,4 +114,195 @@ func TestRegisterDuplicate(t *testing.T) {
 	if mockEmail.lastToken() != firstToken {
 		t.Error("expected no new magic link token for duplicate registration")
 	}
+}
+
+// TestLoginLogoutLifecycle covers the full auth flow end-to-end:
+// register → verify magic link → access protected endpoint → logout → refresh fails.
+func TestLoginLogoutLifecycle(t *testing.T) {
+	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	// Register.
+	e.POST("/api/v1/auth/register").
+		WithJSON(map[string]string{
+			"email": "lifecycle@example.com",
+			"name":  "Lifecycle",
+		}).
+		Expect().
+		Status(http.StatusOK)
+
+	token := mockEmail.lastToken()
+	if token == "" {
+		t.Fatal("expected mock to capture a magic link token after register, got empty string")
+	}
+
+	// Verify magic link → login.
+	loginResp := e.POST("/api/v1/auth/verify").
+		WithJSON(map[string]string{"token": token}).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	accessToken := loginResp.Value("access_token").String().NotEmpty().Raw()
+	refreshToken := loginResp.Value("refresh_token").String().NotEmpty().Raw()
+
+	// Access a protected endpoint.
+	e.GET("/api/v1/notes").
+		WithHeader("Authorization", "Bearer "+accessToken).
+		Expect().
+		Status(http.StatusOK)
+
+	// Logout.
+	e.POST("/api/v1/auth/logout").
+		WithHeader("Authorization", "Bearer "+accessToken).
+		WithJSON(map[string]string{"refresh_token": refreshToken}).
+		Expect().
+		Status(http.StatusNoContent)
+
+	// Refresh with the now-revoked refresh token must fail.
+	e.POST("/api/v1/auth/refresh").
+		WithJSON(map[string]string{"refresh_token": refreshToken}).
+		Expect().
+		Status(http.StatusUnauthorized)
+}
+
+// TestLogoutValid verifies that a properly authenticated logout with a valid refresh
+// token returns 204.
+func TestLogoutValid(t *testing.T) {
+	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	suffix := uuid.NewString()
+	email := "user-" + suffix + "@example.com"
+
+	e.POST("/api/v1/auth/register").
+		WithJSON(map[string]string{"email": email, "name": "Logout Happy Path"}).
+		Expect().
+		Status(http.StatusOK)
+
+	magicToken := mockEmail.lastToken()
+	if magicToken == "" {
+		t.Fatal("no magic link token captured")
+	}
+
+	resp := e.POST("/api/v1/auth/verify").
+		WithJSON(map[string]string{"token": magicToken}).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	accessToken := resp.Value("access_token").String().NotEmpty().Raw()
+	refreshToken := resp.Value("refresh_token").String().NotEmpty().Raw()
+
+	e.POST("/api/v1/auth/logout").
+		WithHeader("Authorization", "Bearer "+accessToken).
+		WithJSON(map[string]string{"refresh_token": refreshToken}).
+		Expect().
+		Status(http.StatusNoContent)
+}
+
+// TestLogoutNoAuthHeader verifies that calling logout without an Authorization header
+// returns 401 with UNAUTHORIZED.
+func TestLogoutNoAuthHeader(t *testing.T) {
+	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	suffix := uuid.NewString()
+	email := "user-" + suffix + "@example.com"
+
+	e.POST("/api/v1/auth/register").
+		WithJSON(map[string]string{"email": email, "name": "Logout No Auth"}).
+		Expect().
+		Status(http.StatusOK)
+
+	magicToken := mockEmail.lastToken()
+	if magicToken == "" {
+		t.Fatal("no magic link token captured")
+	}
+
+	resp := e.POST("/api/v1/auth/verify").
+		WithJSON(map[string]string{"token": magicToken}).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	refreshToken := resp.Value("refresh_token").String().NotEmpty().Raw()
+
+	e.POST("/api/v1/auth/logout").
+		WithJSON(map[string]string{"refresh_token": refreshToken}).
+		Expect().
+		Status(http.StatusUnauthorized).
+		JSON().Object().
+		HasValue("code", "UNAUTHORIZED")
+}
+
+// TestLogoutMissingRefreshTokenField verifies that calling logout with a valid access token
+// but without a refresh_token field in the body returns 400 with VALIDATION_ERROR.
+func TestLogoutMissingRefreshTokenField(t *testing.T) {
+	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	suffix := uuid.NewString()
+	email := "user-" + suffix + "@example.com"
+
+	e.POST("/api/v1/auth/register").
+		WithJSON(map[string]string{"email": email, "name": "Logout Missing Field"}).
+		Expect().
+		Status(http.StatusOK)
+
+	magicToken := mockEmail.lastToken()
+	if magicToken == "" {
+		t.Fatal("no magic link token captured")
+	}
+
+	resp := e.POST("/api/v1/auth/verify").
+		WithJSON(map[string]string{"token": magicToken}).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	accessToken := resp.Value("access_token").String().NotEmpty().Raw()
+
+	e.POST("/api/v1/auth/logout").
+		WithHeader("Authorization", "Bearer "+accessToken).
+		WithJSON(map[string]string{}).
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "VALIDATION_ERROR")
+}
+
+// TestLogoutInvalidRefreshTokenReturns204 verifies that the server does not leak token
+// validity information — even an invalid refresh token causes logout to return 204.
+func TestLogoutInvalidRefreshTokenReturns204(t *testing.T) {
+	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	suffix := uuid.NewString()
+	email := "user-" + suffix + "@example.com"
+
+	e.POST("/api/v1/auth/register").
+		WithJSON(map[string]string{"email": email, "name": "Logout Invalid Token"}).
+		Expect().
+		Status(http.StatusOK)
+
+	magicToken := mockEmail.lastToken()
+	if magicToken == "" {
+		t.Fatal("no magic link token captured")
+	}
+
+	resp := e.POST("/api/v1/auth/verify").
+		WithJSON(map[string]string{"token": magicToken}).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	accessToken := resp.Value("access_token").String().NotEmpty().Raw()
+
+	// The server must not leak token validity information.
+	e.POST("/api/v1/auth/logout").
+		WithHeader("Authorization", "Bearer "+accessToken).
+		WithJSON(map[string]string{"refresh_token": "not-a-real-refresh-token"}).
+		Expect().
+		Status(http.StatusNoContent)
 }

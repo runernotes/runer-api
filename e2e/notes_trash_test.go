@@ -10,6 +10,7 @@ import (
 
 	"github.com/gavv/httpexpect/v2"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 // registerAndLogin creates a new user account with a unique email address, verifies the magic
@@ -395,4 +396,81 @@ func TestUserCannotRestoreOtherUsersNote(t *testing.T) {
 		Expect().
 		Status(http.StatusNotFound).
 		JSON().Object().HasValue("code", "NOT_FOUND")
+}
+
+// TestTrashAlreadyTrashedNoteIsIdempotent verifies that trashing a note that is already
+// trashed returns 204. The repository applies the update unconditionally so the second
+// DELETE must also succeed and must bump updated_at to a new value.
+func TestTrashAlreadyTrashedNoteIsIdempotent(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+	noteID := createNote(t, e, token)
+
+	// First trash — must succeed.
+	e.DELETE("/api/v1/notes/"+noteID).
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusNoContent)
+
+	// Capture updated_at after the first trash.
+	firstTrashResp := e.GET("/api/v1/notes/"+noteID).
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	firstUpdatedAt := firstTrashResp.Value("updated_at").String().NotEmpty().Raw()
+
+	// Small sleep to ensure the clock advances so updated_at can differ.
+	time.Sleep(10 * time.Millisecond)
+
+	// Second trash on an already-trashed note — must also return 204 (idempotent).
+	e.DELETE("/api/v1/notes/"+noteID).
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusNoContent)
+
+	// updated_at must have been bumped by the second trash.
+	secondTrashResp := e.GET("/api/v1/notes/"+noteID).
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	secondUpdatedAt := secondTrashResp.Value("updated_at").String().NotEmpty().Raw()
+
+	require.NotEqual(t, firstUpdatedAt, secondUpdatedAt,
+		"updated_at must be bumped on each trash, even when already trashed")
+}
+
+// TestRestoreActiveNoteIsIdempotent verifies that calling restore on a note that is already
+// active (not trashed) returns 200 without error. The restore operation does not check the
+// current trash state, making it safe to call regardless of the note's current state.
+func TestRestoreActiveNoteIsIdempotent(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+	noteID := createNote(t, e, token)
+
+	// Verify the note is active (trashed_at is null) before the test.
+	e.GET("/api/v1/notes/"+noteID).
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object().
+		Value("trashed_at").IsNull()
+
+	// Restore an already-active note — must return 200 without error.
+	restoreResp := e.POST("/api/v1/notes/"+noteID+"/restore").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	// The note must still be active after the no-op restore.
+	restoreResp.Value("trashed_at").IsNull()
+	restoreResp.HasValue("note_id", noteID)
 }

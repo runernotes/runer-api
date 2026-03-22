@@ -227,3 +227,198 @@ func TestDeltaSyncPagination_EmptyDelta(t *testing.T) {
 	syncResp.Value("notes").Array().Length().IsEqual(0)
 	syncResp.Value("tombstones").Array().Length().IsEqual(0)
 }
+
+// TestGetNotesInvalidCursor verifies that passing a cursor value that is not valid base64
+// returns 400 with INVALID_PARAM.
+func TestGetNotesInvalidCursor(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// A cursor that is not valid base64 must be rejected with INVALID_PARAM.
+	e.GET("/api/v1/notes").
+		WithHeader("Authorization", "Bearer "+token).
+		WithQuery("cursor", "!!!not-valid-base64!!!").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "INVALID_PARAM")
+}
+
+// TestFullSyncReturnsAllNotesAndTombstonesOnFirstPage verifies that a full pull (no since)
+// returns all notes and all tombstones on the first page when the total count is within the
+// page limit. The spec states that tombstones are only included on the first page of a full
+// sync, so this test confirms tombstones appear alongside notes without requiring pagination.
+func TestFullSyncReturnsAllNotesAndTombstonesOnFirstPage(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// Create two active notes and one note that will be purged (producing a tombstone).
+	id1 := createNote(t, e, token)
+	id2 := createNote(t, e, token)
+	idPurged := createNote(t, e, token)
+
+	// Purge the third note to create a tombstone.
+	e.DELETE("/api/v1/notes/"+idPurged+"/purge").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusNoContent)
+
+	// Full sync — no since, no cursor.
+	syncResp := e.GET("/api/v1/notes").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	// server_time must be present.
+	syncResp.Value("server_time").NotNull()
+
+	// All two active notes must appear.
+	notes := syncResp.Value("notes").Array()
+	notes.Length().IsEqual(2)
+
+	returnedIDs := make([]string, 0, 2)
+	for _, v := range notes.Iter() {
+		returnedIDs = append(returnedIDs, v.Object().Value("note_id").String().Raw())
+	}
+	require.ElementsMatch(t, []string{id1, id2}, returnedIDs)
+
+	// The tombstone for the purged note must appear on the first page.
+	tombstones := syncResp.Value("tombstones").Array()
+	tombstones.Length().IsEqual(1)
+	tombstones.Value(0).Object().HasValue("note_id", idPurged)
+}
+
+// TestGetNotesLimitZeroReturnsBadRequest verifies that sending limit=0 is rejected with
+// 400 and INVALID_PARAM because zero is below the minimum allowed page size of 1.
+func TestGetNotesLimitZeroReturnsBadRequest(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// limit=0 is below the minimum and must be rejected.
+	e.GET("/api/v1/notes").
+		WithHeader("Authorization", "Bearer "+token).
+		WithQuery("limit", "0").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "INVALID_PARAM")
+}
+
+// TestGetNotesNonNumericLimitReturnsBadRequest verifies that a non-numeric limit query
+// parameter is rejected with 400 and INVALID_PARAM.
+func TestGetNotesNonNumericLimitReturnsBadRequest(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// A non-numeric limit must be rejected with INVALID_PARAM.
+	e.GET("/api/v1/notes").
+		WithHeader("Authorization", "Bearer "+token).
+		WithQuery("limit", "abc").
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "INVALID_PARAM")
+}
+
+// TestGetNotesLimitAboveMaxIsClamped verifies that sending limit=999, which exceeds the
+// server's maximum page size of 500, succeeds with 200 and returns at most 500 notes rather
+// than being rejected. This confirms the server clamps the value rather than refusing it.
+func TestGetNotesLimitAboveMaxIsClamped(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// Create a small number of notes to confirm the response is shaped correctly.
+	createNote(t, e, token)
+	createNote(t, e, token)
+
+	// limit=999 exceeds the maximum of 500 but must still return 200.
+	resp := e.GET("/api/v1/notes").
+		WithHeader("Authorization", "Bearer "+token).
+		WithQuery("limit", "999").
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	// The response must be a valid sync payload.
+	resp.Value("server_time").NotNull()
+
+	// The notes array must not exceed 500 items (our 2 notes are well within that).
+	notes := resp.Value("notes").Array()
+	require.LessOrEqual(t, len(notes.Iter()), 500,
+		"notes returned must not exceed the maximum page size of 500")
+}
+
+// TestFullSyncReturnsTombstonesOnlyOnFirstPageWhenPaginating verifies that when a full
+// sync spans multiple pages, tombstones are included only on the first page and are absent
+// from subsequent pages. This prevents clients from double-processing tombstones during
+// a paginated full sync.
+func TestFullSyncReturnsTombstonesOnlyOnFirstPageWhenPaginating(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// Create enough notes to require at least two pages with limit=2.
+	id1 := createNote(t, e, token)
+	id2 := createNote(t, e, token)
+	id3 := createNote(t, e, token)
+	idPurged := createNote(t, e, token)
+
+	// Purge one note to produce a tombstone.
+	e.DELETE("/api/v1/notes/"+idPurged+"/purge").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusNoContent)
+
+	// Page 1 of full sync (limit=2): must contain tombstones.
+	page1 := e.GET("/api/v1/notes").
+		WithHeader("Authorization", "Bearer "+token).
+		WithQuery("limit", "2").
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	page1.Value("server_time").NotNull()
+
+	// Page 1 must include the tombstone.
+	page1Tombstones := page1.Value("tombstones").Array()
+	page1Tombstones.Length().IsEqual(1)
+	page1Tombstones.Value(0).Object().HasValue("note_id", idPurged)
+
+	// There must be more pages.
+	cursor := page1.Value("next_cursor").String().NotEmpty().Raw()
+
+	// Page 2 of full sync (using cursor): tombstones must be empty.
+	page2 := e.GET("/api/v1/notes").
+		WithHeader("Authorization", "Bearer "+token).
+		WithQuery("limit", "2").
+		WithQuery("cursor", cursor).
+		Expect().
+		Status(http.StatusOK).
+		JSON().Object()
+
+	page2.Value("server_time").NotNull()
+	page2.Value("tombstones").Array().Length().IsEqual(0)
+
+	// Collect all note IDs across both pages and verify all three active notes appear.
+	allIDs := make([]string, 0, 3)
+	for _, v := range page1.Value("notes").Array().Iter() {
+		allIDs = append(allIDs, v.Object().Value("note_id").String().Raw())
+	}
+	for _, v := range page2.Value("notes").Array().Iter() {
+		allIDs = append(allIDs, v.Object().Value("note_id").String().Raw())
+	}
+	require.ElementsMatch(t, []string{id1, id2, id3}, allIDs,
+		"all three active notes must appear exactly once across pages")
+}
