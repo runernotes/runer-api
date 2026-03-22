@@ -3,13 +3,12 @@ package e2e_test
 // Rate-limiter tests verify that the server enforces a per-IP burst limit.
 // A fresh server (with a fresh limiter state) is started for each test so the
 // burst counter begins at its maximum value and prior requests cannot interfere.
+//
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -18,59 +17,23 @@ import (
 	"github.com/runernotes/runer-api/internal/config"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
 	"github.com/runernotes/runer-api/internal/validator"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// newTestServerWithRateLimiter starts the same test infrastructure as newTestServer but
-// also applies the rate-limiter middleware so that burst exhaustion can be tested.
-// The rate-limiter state is fresh for each call; tests that exercise the limiter must use
-// this helper rather than the standard newTestServer.
+// newTestServerWithRateLimiter wires the same infrastructure as newTestServer but also
+// applies the rate-limiter middleware so that burst exhaustion can be tested. The
+// rate-limiter state is fresh for each call because a new Echo instance (and therefore
+// a new limiter) is created. Tests that exercise the limiter must use this helper.
+//
+// The shared Postgres database (testDBConnStr) is reused; only the Echo instance and
+// rate-limiter state are fresh.
 func newTestServerWithRateLimiter(t *testing.T) (*httptest.Server, *mockEmailSender) {
 	t.Helper()
-	ctx := context.Background()
 
-	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
-		postgres.WithDatabase("runer_test"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
-		),
-	)
-	if err != nil {
-		t.Fatalf("start postgres container: %v", err)
-	}
-	t.Cleanup(func() { _ = pgContainer.Terminate(ctx) })
-
-	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("get connection string: %v", err)
-	}
-
-	cfg := &config.Config{
-		JWTSecret:               "e2e-test-secret",
-		JWTTokenDuration:        15 * time.Minute,
-		JWTRefreshTokenDuration: 7 * 24 * time.Hour,
-		MagicLinkTokenDuration:  time.Hour,
-		DatabaseURL:             connStr,
-		DatabaseLogLevel:        "silent",
-		DatabaseMaxIdleConns:    5,
-		DatabaseMaxOpenConns:    10,
-		DatabaseConnMaxLifetime: time.Hour,
-		AppBaseURL:              "http://localhost",
-	}
+	cfg := sharedCfg()
 
 	db, err := config.Connect(cfg)
 	if err != nil {
 		t.Fatalf("connect to database: %v", err)
-	}
-	if err := config.Migrate(db); err != nil {
-		t.Fatalf("migrate database: %v", err)
 	}
 
 	mock := &mockEmailSender{}

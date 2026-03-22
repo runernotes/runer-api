@@ -10,12 +10,15 @@ import (
 // TestRegisterValid verifies that a well-formed registration request returns 200
 // and causes the mock email sender to capture a magic link token.
 func TestRegisterValid(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
+	email := "alice-" + uuid.NewString() + "@example.com"
+
 	e.POST("/api/v1/auth/register").
 		WithJSON(map[string]string{
-			"email": "alice@example.com",
+			"email": email,
 			"name":  "Alice",
 		}).
 		Expect().
@@ -32,6 +35,7 @@ func TestRegisterValid(t *testing.T) {
 // TestRegisterInvalidEmail verifies that a registration request with a malformed email
 // returns 400 with VALIDATION_ERROR and does not send a magic link.
 func TestRegisterInvalidEmail(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
@@ -50,11 +54,14 @@ func TestRegisterInvalidEmail(t *testing.T) {
 // TestRegisterMissingName verifies that a registration request without a name field
 // returns 400 with VALIDATION_ERROR and does not send a magic link.
 func TestRegisterMissingName(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
+	email := "bob-" + uuid.NewString() + "@example.com"
+
 	e.POST("/api/v1/auth/register").
-		WithJSON(map[string]string{"email": "bob@example.com"}).
+		WithJSON(map[string]string{"email": email}).
 		Expect().
 		Status(http.StatusBadRequest).
 		JSON().Object().
@@ -68,6 +75,7 @@ func TestRegisterMissingName(t *testing.T) {
 // TestRegisterEmptyBody verifies that a registration request with an empty JSON object
 // returns 400 with VALIDATION_ERROR and does not send a magic link.
 func TestRegisterEmptyBody(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
@@ -86,11 +94,12 @@ func TestRegisterEmptyBody(t *testing.T) {
 // TestRegisterDuplicateEmail verifies that registering the same email twice returns 200
 // on both attempts (no user enumeration) but only issues a magic link for the first.
 func TestRegisterDuplicateEmail(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
 	payload := map[string]string{
-		"email": "duplicate@example.com",
+		"email": "duplicate-" + uuid.NewString() + "@example.com",
 		"name":  "Duplicate",
 	}
 
@@ -119,13 +128,16 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 // TestLoginLogoutLifecycle covers the full auth flow end-to-end:
 // register → verify magic link → access protected endpoint → logout → refresh fails.
 func TestLoginLogoutLifecycle(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
+
+	email := "lifecycle-" + uuid.NewString() + "@example.com"
 
 	// Register.
 	e.POST("/api/v1/auth/register").
 		WithJSON(map[string]string{
-			"email": "lifecycle@example.com",
+			"email": email,
 			"name":  "Lifecycle",
 		}).
 		Expect().
@@ -169,6 +181,7 @@ func TestLoginLogoutLifecycle(t *testing.T) {
 // TestLogoutValid verifies that a properly authenticated logout with a valid refresh
 // token returns 204.
 func TestLogoutValid(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
@@ -204,6 +217,7 @@ func TestLogoutValid(t *testing.T) {
 // TestLogoutNoAuthHeader verifies that calling logout without an Authorization header
 // returns 401 with UNAUTHORIZED.
 func TestLogoutNoAuthHeader(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
@@ -239,6 +253,7 @@ func TestLogoutNoAuthHeader(t *testing.T) {
 // TestLogoutMissingRefreshTokenField verifies that calling logout with a valid access token
 // but without a refresh_token field in the body returns 400 with VALIDATION_ERROR.
 func TestLogoutMissingRefreshTokenField(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 
@@ -275,6 +290,7 @@ func TestLogoutMissingRefreshTokenField(t *testing.T) {
 // TestLogoutInvalidRefreshTokenReturns204 verifies that the server does not leak token
 // validity information — even an invalid refresh token causes logout to return 204.
 func TestLogoutInvalidRefreshTokenReturns204(t *testing.T) {
+
 	srv, mockEmail, _ := newTestServer(t)
 	e := newExpect(t, srv)
 

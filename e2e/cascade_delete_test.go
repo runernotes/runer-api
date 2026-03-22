@@ -13,6 +13,7 @@ import (
 // automatically removes all related records (notes, magic link tokens,
 // refresh tokens) via ON DELETE CASCADE foreign keys.
 func TestCascadeDeleteUser(t *testing.T) {
+
 	srv, mock, db := newTestServer(t)
 	e := newExpect(t, srv)
 
@@ -21,12 +22,17 @@ func TestCascadeDeleteUser(t *testing.T) {
 	//    - magic_link_tokens
 	//    - refresh_tokens
 	//    - notes
-	accessToken := registerAndLogin(t, e, mock, uuid.NewString())
+	suffix := uuid.NewString()
+	accessToken := registerAndLogin(t, e, mock, suffix)
 	createNote(t, e, accessToken)
 
-	// 2. Find the user that was just created.
+	// 2. Look up the specific user created in this test by their email address.
+	//    Using a WHERE clause scopes the lookup to this test's user, which is
+	//    necessary because the shared database may contain users from other
+	//    concurrent tests.
+	email := "user-" + suffix + "@example.com"
 	var user users.User
-	if err := db.First(&user).Error; err != nil {
+	if err := db.Where("email = ?", email).First(&user).Error; err != nil {
 		t.Fatalf("finding user: %v", err)
 	}
 	userID := user.ID
