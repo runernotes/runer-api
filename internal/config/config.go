@@ -54,6 +54,7 @@ func Load(target any) error {
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
 	setDefaults()
+	_ = viper.BindEnv("JWT_SECRET")
 	_ = viper.ReadInConfig()
 
 	if err := viper.Unmarshal(target); err != nil {
