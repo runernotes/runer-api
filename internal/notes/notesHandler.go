@@ -194,6 +194,9 @@ func (h *NotesHandler) Upsert(c *echo.Context) error {
 		if errors.Is(err, ErrNoteNotFound) {
 			return c.JSON(http.StatusNotFound, api.ErrorResponse{Error: "note not found", Code: "NOT_FOUND"})
 		}
+		if errors.Is(err, ErrQuotaExceeded) {
+			return c.JSON(http.StatusForbidden, api.ErrorResponse{Error: "Quota exceeded", Code: "QUOTA_EXCEEDED"})
+		}
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to save note", Code: "INTERNAL_ERROR"})
 	}
 

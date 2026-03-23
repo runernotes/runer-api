@@ -21,6 +21,7 @@ type Config struct {
 	DatabaseMaxOpenConns    int           `mapstructure:"DATABASE_MAX_OPEN_CONNS"`
 	DatabaseConnMaxLifetime time.Duration `mapstructure:"DATABASE_CONN_MAX_LIFETIME"`
 	AppBaseURL              string        `mapstructure:"APP_BASE_URL"`
+	FreeNoteLimit           int           `mapstructure:"FREE_NOTE_LIMIT"`
 }
 
 func (c *Config) IsDevelopment() bool {
@@ -46,6 +47,7 @@ func setDefaults() {
 	viper.SetDefault("DATABASE_MAX_OPEN_CONNS", 100)
 	viper.SetDefault("DATABASE_CONN_MAX_LIFETIME", "1h")
 	viper.SetDefault("APP_BASE_URL", "http://localhost:8080")
+	viper.SetDefault("FREE_NOTE_LIMIT", 50)
 }
 
 func Load(target any) error {

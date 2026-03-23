@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -364,10 +365,16 @@ func TestGetNotesLimitAboveMaxIsClamped(t *testing.T) {
 // from subsequent pages. This prevents clients from double-processing tombstones during
 // a paginated full sync.
 func TestFullSyncReturnsTombstonesOnlyOnFirstPageWhenPaginating(t *testing.T) {
-	srv, mock, _ := newTestServer(t)
+	srv, mock, db := newTestServer(t)
 	e := newExpect(t, srv)
 
-	token := registerAndLogin(t, e, mock, uuid.NewString())
+	suffix := uuid.NewString()
+	email := fmt.Sprintf("user-%s@example.com", suffix)
+	token := registerAndLogin(t, e, mock, suffix)
+
+	// Upgrade to pro so we can create more notes than the free-plan limit allows.
+	userID := getUserIDByEmail(t, db, email)
+	setUserPlan(t, db, userID, "pro")
 
 	// Create enough notes to require at least two pages with limit=2.
 	id1 := createNote(t, e, token)

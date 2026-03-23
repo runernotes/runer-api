@@ -160,9 +160,12 @@ func (r *NotesRepository) Purge(ctx context.Context, noteID uuid.UUID, userID uu
 	})
 }
 
+// CountLiveNotes returns the number of non-trashed notes for a user.
+// Trashed notes (trashed_at IS NOT NULL) are excluded from the count so that
+// a trashed note does not consume quota.
 func (r *NotesRepository) CountLiveNotes(ctx context.Context, userID uuid.UUID) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&Note{}).Where("user_id = ?", userID).Count(&count).Error
+	err := r.db.WithContext(ctx).Model(&Note{}).Where("user_id = ? AND trashed_at IS NULL", userID).Count(&count).Error
 	return count, err
 }
 

@@ -26,6 +26,19 @@ type mockRepository struct {
 	findTombstonesSincePaginatedFn func(ctx context.Context, userID uuid.UUID, since time.Time, limit int, afterDeletedAt time.Time, afterNoteID uuid.UUID) ([]NoteTombstone, error)
 	findAllTombstonesFn            func(ctx context.Context, userID uuid.UUID) ([]NoteTombstone, error)
 	purgeExpiredTombstonesFn       func(ctx context.Context, olderThan time.Time) (int64, error)
+	countLiveNotesFn               func(ctx context.Context, userID uuid.UUID) (int64, error)
+}
+
+// mockUsersRepo implements the usersRepository interface for unit testing.
+type mockUsersRepo struct {
+	findByIDFn func(ctx context.Context, id uuid.UUID) (UserPlan, error)
+}
+
+func (m *mockUsersRepo) FindByID(ctx context.Context, id uuid.UUID) (UserPlan, error) {
+	if m.findByIDFn != nil {
+		return m.findByIDFn(ctx, id)
+	}
+	return UserPlan{Plan: "free"}, nil
 }
 
 func (m *mockRepository) FindAll(ctx context.Context, userID uuid.UUID) ([]Note, error) {
@@ -119,6 +132,13 @@ func (m *mockRepository) PurgeExpiredTombstones(ctx context.Context, olderThan t
 	return 0, nil
 }
 
+func (m *mockRepository) CountLiveNotes(ctx context.Context, userID uuid.UUID) (int64, error) {
+	if m.countLiveNotesFn != nil {
+		return m.countLiveNotesFn(ctx, userID)
+	}
+	return 0, nil
+}
+
 // makeNotes returns n notes with sequential updated_at values starting from base.
 func makeNotes(n int, base time.Time) []Note {
 	notes := make([]Note, n)
@@ -172,7 +192,7 @@ func TestGetNotesSince_FirstPage(t *testing.T) {
 		},
 	}
 
-	svc := NewNotesService(repo)
+	svc := newServiceNoQuota(repo)
 	gotNotes, gotTombstones, hasMore, err := svc.GetNotesSince(ctx, userID, &since, nil, deltaPageSize)
 	require.NoError(t, err)
 	assert.True(t, hasMore)
@@ -200,7 +220,7 @@ func TestGetNotesSince_LastPage(t *testing.T) {
 		},
 	}
 
-	svc := NewNotesService(repo)
+	svc := newServiceNoQuota(repo)
 	gotNotes, gotTombstones, hasMore, err := svc.GetNotesSince(ctx, userID, &since, nil, deltaPageSize)
 	require.NoError(t, err)
 	assert.False(t, hasMore)
@@ -224,7 +244,7 @@ func TestGetNotesSince_EmptyDelta(t *testing.T) {
 		},
 	}
 
-	svc := NewNotesService(repo)
+	svc := newServiceNoQuota(repo)
 	gotNotes, gotTombstones, hasMore, err := svc.GetNotesSince(ctx, userID, &since, nil, deltaPageSize)
 	require.NoError(t, err)
 	assert.False(t, hasMore)
@@ -260,7 +280,7 @@ func TestGetNotesSince_SubsequentPage(t *testing.T) {
 		},
 	}
 
-	svc := NewNotesService(repo)
+	svc := newServiceNoQuota(repo)
 	_, _, hasMore, err := svc.GetNotesSince(ctx, userID, &since, cursor, deltaPageSize)
 	require.NoError(t, err)
 	assert.False(t, hasMore)
@@ -281,7 +301,7 @@ func TestGetNotesSince_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewNotesService(repo)
+	svc := newServiceNoQuota(repo)
 	_, _, _, err := svc.GetNotesSince(ctx, userID, &since, nil, deltaPageSize)
 	assert.ErrorIs(t, err, repoErr)
 }
@@ -303,7 +323,7 @@ func TestGetNotesSince_TombstoneRepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewNotesService(repo)
+	svc := newServiceNoQuota(repo)
 	_, _, _, err := svc.GetNotesSince(ctx, userID, &since, nil, deltaPageSize)
 	assert.ErrorIs(t, err, repoErr)
 }
@@ -328,7 +348,7 @@ func TestGetNotesSince_FullSync_NilSince(t *testing.T) {
 		},
 	}
 
-	svc := NewNotesService(repo)
+	svc := newServiceNoQuota(repo)
 	gotNotes, gotTombstones, hasMore, err := svc.GetNotesSince(ctx, userID, nil, nil, deltaPageSize)
 	require.NoError(t, err)
 	assert.False(t, hasMore)
@@ -343,4 +363,206 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// ---- UpsertNote quota checks ----
+
+// newServiceNoQuota constructs a NotesService with no quota enforcement for tests
+// that don't exercise quota logic.
+func newServiceNoQuota(repo repository) *NotesService {
+	return NewNotesService(repo, &mockUsersRepo{}, 0)
+}
+
+// newServiceWithQuota constructs a NotesService with the given repo and users repo,
+// wiring in a free note limit for quota enforcement.
+func newServiceWithQuota(repo repository, usersRepo *mockUsersRepo, limit int) *NotesService {
+	return NewNotesService(repo, usersRepo, limit)
+}
+
+// TestUpsertNote_QuotaExceeded_NewNote verifies that a free user creating a new note
+// beyond the limit receives ErrQuotaExceeded.
+func TestUpsertNote_QuotaExceeded_NewNote(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	const limit = 3
+
+	usersRepo := &mockUsersRepo{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (UserPlan, error) {
+			return UserPlan{Plan: "free"}, nil
+		},
+	}
+
+	repo := &mockRepository{
+		// Note does not exist yet — this is a create.
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			return nil, ErrNoteNotFound
+		},
+		countLiveNotesFn: func(_ context.Context, _ uuid.UUID) (int64, error) {
+			return int64(limit), nil // already at limit
+		},
+	}
+
+	svc := newServiceWithQuota(repo, usersRepo, limit)
+	_, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	require.ErrorIs(t, err, ErrQuotaExceeded)
+}
+
+// TestUpsertNote_QuotaNotExceeded_NewNote verifies that a free user creating a note
+// below the limit succeeds.
+func TestUpsertNote_QuotaNotExceeded_NewNote(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	const limit = 3
+
+	usersRepo := &mockUsersRepo{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (UserPlan, error) {
+			return UserPlan{Plan: "free"}, nil
+		},
+	}
+
+	savedNote := &Note{ID: noteID, UserID: userID}
+	upsertCalled := false
+
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, id uuid.UUID, _ uuid.UUID) (*Note, error) {
+			if upsertCalled {
+				return savedNote, nil
+			}
+			return nil, ErrNoteNotFound // first call: note does not exist
+		},
+		countLiveNotesFn: func(_ context.Context, _ uuid.UUID) (int64, error) {
+			return int64(limit - 1), nil // one below limit
+		},
+		upsertFn: func(_ context.Context, _ *Note) error {
+			upsertCalled = true
+			return nil
+		},
+	}
+
+	svc := newServiceWithQuota(repo, usersRepo, limit)
+	note, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	require.NoError(t, err)
+	require.NotNil(t, note)
+}
+
+// TestUpsertNote_ProUser_SkipsQuota verifies that a pro user can create notes beyond
+// the free limit without receiving ErrQuotaExceeded.
+func TestUpsertNote_ProUser_SkipsQuota(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	const limit = 3
+
+	usersRepo := &mockUsersRepo{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (UserPlan, error) {
+			return UserPlan{Plan: "pro"}, nil
+		},
+	}
+
+	savedNote := &Note{ID: noteID, UserID: userID}
+	upsertCalled := false
+
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			if upsertCalled {
+				return savedNote, nil
+			}
+			return nil, ErrNoteNotFound
+		},
+		countLiveNotesFn: func(_ context.Context, _ uuid.UUID) (int64, error) {
+			// Should not be called for pro users.
+			t.Error("CountLiveNotes must not be called for pro users")
+			return int64(limit + 10), nil
+		},
+		upsertFn: func(_ context.Context, _ *Note) error {
+			upsertCalled = true
+			return nil
+		},
+	}
+
+	svc := newServiceWithQuota(repo, usersRepo, limit)
+	note, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	require.NoError(t, err)
+	require.NotNil(t, note)
+}
+
+// TestUpsertNote_WithBaseVersion_SkipsQuota verifies that an update with a base_version
+// (client knows about the existing note) never triggers a quota check.
+func TestUpsertNote_WithBaseVersion_SkipsQuota(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	const limit = 3
+	baseVersion := time.Now().Add(-time.Minute)
+
+	usersRepo := &mockUsersRepo{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (UserPlan, error) {
+			// Should not be called when base_version is set.
+			t.Error("FindByID (users) must not be called when base_version is provided")
+			return UserPlan{Plan: "free"}, nil
+		},
+	}
+
+	existing := &Note{ID: noteID, UserID: userID, UpdatedAt: baseVersion.Add(-time.Second)}
+	upsertCalled := false
+
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			if upsertCalled {
+				return existing, nil
+			}
+			return existing, nil
+		},
+		upsertFn: func(_ context.Context, _ *Note) error {
+			upsertCalled = true
+			return nil
+		},
+	}
+
+	svc := newServiceWithQuota(repo, usersRepo, limit)
+	note, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), &baseVersion)
+	require.NoError(t, err)
+	require.NotNil(t, note)
+}
+
+// TestUpsertNote_ExistingNote_NoBaseVersion_SkipsQuota verifies that a re-push
+// (PUT without base_version to a note_id that already exists) does not trigger
+// a quota check — the user is not adding a new note.
+func TestUpsertNote_ExistingNote_NoBaseVersion_SkipsQuota(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	const limit = 3
+
+	usersRepo := &mockUsersRepo{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (UserPlan, error) {
+			return UserPlan{Plan: "free"}, nil
+		},
+	}
+
+	existing := &Note{ID: noteID, UserID: userID, UpdatedAt: time.Now().Add(-time.Minute)}
+	upsertCalled := false
+
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			return existing, nil // note already exists
+		},
+		countLiveNotesFn: func(_ context.Context, _ uuid.UUID) (int64, error) {
+			// Must not be called — this is an update, not a create.
+			t.Error("CountLiveNotes must not be called when note already exists")
+			return int64(limit), nil
+		},
+		upsertFn: func(_ context.Context, _ *Note) error {
+			upsertCalled = true
+			return nil
+		},
+	}
+
+	svc := newServiceWithQuota(repo, usersRepo, limit)
+	note, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	require.NoError(t, err)
+	require.NotNil(t, note)
+	require.True(t, upsertCalled)
 }

@@ -1,12 +1,16 @@
 package internal
 
 import (
+	"context"
+
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/runernotes/runer-api/internal/auth"
 	"github.com/runernotes/runer-api/internal/config"
 	"github.com/runernotes/runer-api/internal/email"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
 	"github.com/runernotes/runer-api/internal/notes"
+	"github.com/runernotes/runer-api/internal/subscription"
 	"github.com/runernotes/runer-api/internal/users"
 	"github.com/runernotes/runer-api/internal/utils"
 	"gorm.io/gorm"
@@ -17,6 +21,36 @@ type RouteOptions struct {
 	EmailSender email.Sender
 }
 
+// notesUsersRepoAdapter bridges users.UsersRepository to the notes.usersRepository
+// interface without creating a circular import. The notes package expects
+// FindByID to return notes.UserPlan.
+type notesUsersRepoAdapter struct {
+	inner *users.UsersRepository
+}
+
+func (a *notesUsersRepoAdapter) FindByID(ctx context.Context, id uuid.UUID) (notes.UserPlan, error) {
+	u, err := a.inner.FindByID(ctx, id)
+	if err != nil {
+		return notes.UserPlan{}, err
+	}
+	return notes.UserPlan{Plan: string(u.Plan)}, nil
+}
+
+// subscriptionUsersRepoAdapter bridges users.UsersRepository to the
+// subscription.usersRepository interface which returns subscription.UserRecord.
+type subscriptionUsersRepoAdapter struct {
+	inner *users.UsersRepository
+}
+
+func (a *subscriptionUsersRepoAdapter) FindByID(ctx context.Context, id uuid.UUID) (subscription.UserRecord, error) {
+	u, err := a.inner.FindByID(ctx, id)
+	if err != nil {
+		return subscription.UserRecord{}, err
+	}
+	return subscription.UserRecord{Plan: string(u.Plan)}, nil
+}
+
+// RegisterRoutes wires all application dependencies and registers HTTP routes.
 func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...RouteOptions) {
 	jwtManager := utils.NewJWTManager(cfg.JWTSecret, cfg.JWTTokenDuration, cfg.JWTRefreshTokenDuration)
 	authMW := internalmw.AuthMiddleware(jwtManager)
@@ -38,8 +72,12 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 	authHandler := auth.NewAuthHandler(authService)
 
 	notesRepository := notes.NewNotesRepository(db)
-	notesService := notes.NewNotesService(notesRepository)
+	notesUsersRepo := &notesUsersRepoAdapter{inner: usersRepository}
+	notesService := notes.NewNotesService(notesRepository, notesUsersRepo, cfg.FreeNoteLimit)
 	notesHandler := notes.NewNotesHandler(notesService)
+
+	subscriptionUsersRepo := &subscriptionUsersRepoAdapter{inner: usersRepository}
+	subscriptionHandler := subscription.NewHandler(subscriptionUsersRepo, notesRepository, cfg.FreeNoteLimit)
 
 	v1 := e.Group("/api/v1")
 
@@ -61,4 +99,7 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 	notesGroup.DELETE("/:note_id", notesHandler.Trash)
 	notesGroup.POST("/:note_id/restore", notesHandler.Restore)
 	notesGroup.DELETE("/:note_id/purge", notesHandler.Purge)
+
+	// Protected subscription route
+	v1.GET("/subscription", subscriptionHandler.GetSubscription, authMW)
 }

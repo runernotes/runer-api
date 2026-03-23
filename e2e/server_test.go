@@ -78,6 +78,8 @@ func sharedCfg() *config.Config {
 		DatabaseMaxOpenConns:    10,
 		DatabaseConnMaxLifetime: time.Hour,
 		AppBaseURL:              "http://localhost",
+		// Use a small limit so quota tests don't need to create 50 notes.
+		FreeNoteLimit: 3,
 	}
 }
 

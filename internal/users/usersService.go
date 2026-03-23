@@ -21,14 +21,22 @@ func NewUsersService(repository repository) *UsersService {
 	return &UsersService{repository: repository}
 }
 
+// GetByID looks up a user by their ID.
+func (s *UsersService) GetByID(ctx context.Context, id uuid.UUID) (User, error) {
+	return s.repository.FindByID(ctx, id)
+}
+
+// Create creates a new user.
 func (s *UsersService) Create(ctx context.Context, user User) (User, error) {
 	return s.repository.Create(ctx, user)
 }
 
+// Update persists changes to an existing user.
 func (s *UsersService) Update(ctx context.Context, user User) (User, error) {
 	return s.repository.Update(ctx, user)
 }
 
+// Delete removes a user by ID.
 func (s *UsersService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.repository.Delete(ctx, id)
 }
