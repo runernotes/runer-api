@@ -5,6 +5,12 @@
 @email = test@email.dk
 
 # ─────────────────────────────────────────────
+# Health Check
+# ─────────────────────────────────────────────
+### Health
+GET {{baseUrl}}/health
+
+# ─────────────────────────────────────────────
 # Step 1: Register a new user
 # ─────────────────────────────────────────────
 ### Register
@@ -82,6 +88,10 @@ Authorization: Bearer {{accessToken}}
 GET {{baseUrl}}/api/v1/notes?since=2024-01-01T00:00:00Z&limit=10
 Authorization: Bearer {{accessToken}}
 
+### Get Notes (with cursor for pagination)
+GET {{baseUrl}}/api/v1/notes?cursor=PASTE_CURSOR_HERE&limit=10
+Authorization: Bearer {{accessToken}}
+
 # ─────────────────────────────────────────────
 # Step 8: Notes — get a single note by ID
 # ─────────────────────────────────────────────
@@ -104,21 +114,42 @@ Content-Type: application/json
 }
 
 # ─────────────────────────────────────────────
-# Step 10: Notes — delete a note
+# Step 10: Notes — trash a note (soft-delete)
 # ─────────────────────────────────────────────
-### Delete Note
+### Delete Note (soft-delete / trash)
 DELETE {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000001
 Authorization: Bearer {{accessToken}}
 
 # ─────────────────────────────────────────────
-# Step 11: Confirm deletion — list should show tombstone
+# Step 11: Notes — restore a trashed note
 # ─────────────────────────────────────────────
-### Get All Notes (deleted note should appear in tombstones)
+### Restore Note
+POST {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000001/restore
+Authorization: Bearer {{accessToken}}
+
+# ─────────────────────────────────────────────
+# Step 12: Notes — hard-delete a note (creates tombstone)
+# ─────────────────────────────────────────────
+### Purge Note (hard-delete)
+DELETE {{baseUrl}}/api/v1/notes/00000000-0000-0000-0000-000000000001/purge
+Authorization: Bearer {{accessToken}}
+
+# ─────────────────────────────────────────────
+# Step 13: Confirm deletion — list should show tombstone
+# ─────────────────────────────────────────────
+### Get All Notes (purged note should appear in tombstones)
 GET {{baseUrl}}/api/v1/notes
 Authorization: Bearer {{accessToken}}
 
 # ─────────────────────────────────────────────
-# Step 12: Refresh the access token
+# Step 14: Subscription — get plan and usage
+# ─────────────────────────────────────────────
+### Get Subscription
+GET {{baseUrl}}/api/v1/subscription
+Authorization: Bearer {{accessToken}}
+
+# ─────────────────────────────────────────────
+# Step 15: Refresh the access token
 # ─────────────────────────────────────────────
 ### Refresh Tokens
 # @name refresh
@@ -130,7 +161,7 @@ Content-Type: application/json
 }
 
 # ─────────────────────────────────────────────
-# Step 13: Logout (invalidates the refresh token)
+# Step 16: Logout (invalidates the refresh token)
 # ─────────────────────────────────────────────
 ### Logout
 POST {{baseUrl}}/api/v1/auth/logout

@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -78,6 +79,10 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 
 	subscriptionUsersRepo := &subscriptionUsersRepoAdapter{inner: usersRepository}
 	subscriptionHandler := subscription.NewHandler(subscriptionUsersRepo, notesRepository, cfg.FreeNoteLimit)
+
+	e.GET("/health", func(c *echo.Context) error {
+		return (*c).JSON(http.StatusOK, map[string]string{"status": "ok"})
+	})
 
 	v1 := e.Group("/api/v1")
 
