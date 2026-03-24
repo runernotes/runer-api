@@ -22,6 +22,8 @@ type Config struct {
 	DatabaseConnMaxLifetime time.Duration `mapstructure:"DATABASE_CONN_MAX_LIFETIME"`
 	AppBaseURL              string        `mapstructure:"APP_BASE_URL"`
 	FreeNoteLimit           int           `mapstructure:"FREE_NOTE_LIMIT"`
+	ResendAPIKey            string        `mapstructure:"RESEND_API_KEY"`
+	EmailFrom               string        `mapstructure:"EMAIL_FROM"`
 }
 
 func (c *Config) IsDevelopment() bool {
@@ -48,6 +50,7 @@ func setDefaults() {
 	viper.SetDefault("DATABASE_CONN_MAX_LIFETIME", "1h")
 	viper.SetDefault("APP_BASE_URL", "http://localhost:8080")
 	viper.SetDefault("FREE_NOTE_LIMIT", 50)
+	viper.SetDefault("EMAIL_FROM", "noreply@example.com")
 }
 
 func Load(target any) error {
