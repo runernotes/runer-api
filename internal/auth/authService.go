@@ -75,7 +75,11 @@ func (s *AuthService) CreateMagicLink(ctx context.Context, email string) error {
 		return ErrUserNotFound
 	}
 
-	return s.createAndSendMagicLink(ctx, email, user.ID, false)
+	// A user is considered "new" until they have activated their account.
+	// Sending the new-user email variant until first activation ensures the
+	// welcome flow is shown even if the initial registration email was missed.
+	isNewUser := user.ActivatedAt == nil
+	return s.createAndSendMagicLink(ctx, email, user.ID, isNewUser)
 }
 
 func (s *AuthService) createAndSendMagicLink(ctx context.Context, email string, userId uuid.UUID, isNewUser bool) error {

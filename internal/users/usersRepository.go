@@ -2,6 +2,7 @@ package users
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -50,4 +51,16 @@ func (r *UsersRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	return nil
+}
+
+// Activate sets activated_at to the current time only when it is currently NULL,
+// making the operation idempotent. It then re-fetches and returns the updated user.
+func (r *UsersRepository) Activate(ctx context.Context, id uuid.UUID) (User, error) {
+	now := time.Now().UTC()
+	if err := r.db.WithContext(ctx).Model(&User{}).
+		Where("id = ? AND activated_at IS NULL", id).
+		Updates(map[string]any{"activated_at": now}).Error; err != nil {
+		return User{}, err
+	}
+	return r.FindByID(ctx, id)
 }

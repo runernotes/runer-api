@@ -39,3 +39,4 @@ go.work.sum
 # Air live reload
 tmp/
 spec/
+spec

@@ -15,6 +15,7 @@ type repository interface {
 	Create(ctx context.Context, user User) (User, error)
 	Update(ctx context.Context, user User) (User, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	Activate(ctx context.Context, id uuid.UUID) (User, error)
 }
 
 func NewUsersService(repository repository) *UsersService {
@@ -39,4 +40,11 @@ func (s *UsersService) Update(ctx context.Context, user User) (User, error) {
 // Delete removes a user by ID.
 func (s *UsersService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.repository.Delete(ctx, id)
+}
+
+// Activate sets activated_at on the user if it is currently unset. The operation
+// is idempotent: if the user is already activated the existing timestamp is preserved.
+// Returns the (possibly unchanged) user.
+func (s *UsersService) Activate(ctx context.Context, id uuid.UUID) (User, error) {
+	return s.repository.Activate(ctx, id)
 }

@@ -57,6 +57,8 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 	authMW := internalmw.AuthMiddleware(jwtManager)
 
 	usersRepository := users.NewUsersRepository(db)
+	usersService := users.NewUsersService(usersRepository)
+	usersHandler := users.NewUsersHandler(usersService)
 
 	var opt RouteOptions
 	if len(opts) > 0 {
@@ -111,4 +113,8 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 
 	// Protected subscription route
 	v1.GET("/subscription", subscriptionHandler.GetSubscription, authMW)
+
+	// Protected users routes
+	v1.GET("/users/me", usersHandler.GetMe, authMW)
+	v1.POST("/users/me/activate", usersHandler.Activate, authMW)
 }

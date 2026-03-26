@@ -83,18 +83,20 @@ func sharedCfg() *config.Config {
 	}
 }
 
-// mockEmailSender captures the magic link token instead of sending a real email.
+// mockEmailSender captures the magic link token and isNewUser flag instead of sending a real email.
 type mockEmailSender struct {
-	mu    sync.Mutex
-	token string
-	count int
+	mu          sync.Mutex
+	token       string
+	count       int
+	isNewUser   bool
 }
 
-func (m *mockEmailSender) SendMagicLinkEmail(_ context.Context, _ string, token string, _ bool) error {
+func (m *mockEmailSender) SendMagicLinkEmail(_ context.Context, _ string, token string, isNewUser bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.token = token
 	m.count++
+	m.isNewUser = isNewUser
 	return nil
 }
 
@@ -108,6 +110,13 @@ func (m *mockEmailSender) callCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.count
+}
+
+// lastIsNewUser returns the isNewUser flag captured from the most recent SendMagicLinkEmail call.
+func (m *mockEmailSender) lastIsNewUser() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.isNewUser
 }
 
 // newTestServer connects to the shared Postgres database, wires the full Echo app with a
