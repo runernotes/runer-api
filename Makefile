@@ -26,3 +26,14 @@ docker-run:
 
 verify: lint test e2e build clean
 	@echo "All checks passed."
+
+# ---------------------------------------------------------------------------
+# Release
+# ---------------------------------------------------------------------------
+
+release: guard-TAG
+	git tag $(TAG)
+	git push origin $(TAG)
+
+guard-%:
+	@[ -n "$($(*))" ] || (echo "Error: $* is required. Usage: make release TAG=v1.2.3"; exit 1)

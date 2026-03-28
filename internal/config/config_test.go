@@ -22,7 +22,7 @@ func TestConfig_Validate(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cfg := Config{JWTSecret: tc.secret}
+			cfg := Config{JWTSecret: tc.secret, RateLimitPerMinute: 40, RateLimitBurst: 15}
 			err := cfg.Validate()
 			if tc.wantErr {
 				require.Error(t, err)

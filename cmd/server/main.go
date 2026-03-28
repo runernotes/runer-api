@@ -45,7 +45,7 @@ func main() {
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
 	e.Use(middleware.RequestLogger())
-	e.Use(internalmw.RateLimiter())
+	e.Use(internalmw.RateLimiter(cfg.RateLimitPerMinute, cfg.RateLimitBurst))
 
 	internalpkg.RegisterRoutes(e, db, &cfg)
 

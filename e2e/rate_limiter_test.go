@@ -43,7 +43,8 @@ func newTestServerWithRateLimiter(t *testing.T) (*httptest.Server, *mockEmailSen
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestLogger())
 	// Apply the rate limiter so burst exhaustion can be observed in tests.
-	e.Use(internalmw.RateLimiter())
+	// Use a small burst so the test doesn't need to fire many requests.
+	e.Use(internalmw.RateLimiter(40, 5))
 
 	internalpkg.RegisterRoutes(e, db, cfg, internalpkg.RouteOptions{
 		EmailSender: mock,
@@ -73,8 +74,8 @@ func TestRateLimiterAllowsRequestsWithinBurst(t *testing.T) {
 
 // TestRateLimiterBurstExhaustedReturns429 verifies that sending more requests than the
 // configured burst size from the same IP within a short window results in a 429 response
-// with code RATE_LIMITED. The limiter is configured for a burst of 5; the sixth rapid
-// request must be rejected.
+// with code RATE_LIMITED. The test server uses a burst of 5; the sixth rapid request must
+// be rejected.
 func TestRateLimiterBurstExhaustedReturns429(t *testing.T) {
 	srv, _ := newTestServerWithRateLimiter(t)
 	e := newExpect(t, srv)

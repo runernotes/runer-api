@@ -8,11 +8,11 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 )
 
-func RateLimiter() echo.MiddlewareFunc {
+func RateLimiter(perMinute int, burst int) echo.MiddlewareFunc {
 	store := middleware.NewRateLimiterMemoryStoreWithConfig(
 		middleware.RateLimiterMemoryStoreConfig{
-			Rate:      20.0 / 60.0, // 20 req/min expressed as req/s
-			Burst:     5,
+			Rate:      float64(perMinute) / 60.0,
+			Burst:     burst,
 			ExpiresIn: 3 * time.Minute,
 		},
 	)

@@ -22,6 +22,8 @@ type Config struct {
 	DatabaseConnMaxLifetime time.Duration `mapstructure:"DATABASE_CONN_MAX_LIFETIME"`
 	AppBaseURL              string        `mapstructure:"APP_BASE_URL"`
 	FreeNoteLimit           int           `mapstructure:"FREE_NOTE_LIMIT"`
+	RateLimitPerMinute      int           `mapstructure:"RATE_LIMIT_PER_MINUTE"`
+	RateLimitBurst          int           `mapstructure:"RATE_LIMIT_BURST"`
 	ResendAPIKey            string        `mapstructure:"RESEND_API_KEY"`
 	EmailFrom               string        `mapstructure:"EMAIL_FROM"`
 }
@@ -33,6 +35,12 @@ func (c *Config) IsDevelopment() bool {
 func (c *Config) Validate() error {
 	if c.JWTSecret == "" {
 		return errors.New("JWT_SECRET must be set")
+	}
+	if c.RateLimitPerMinute <= 0 {
+		return errors.New("RATE_LIMIT_PER_MINUTE must be greater than 0")
+	}
+	if c.RateLimitBurst <= 0 {
+		return errors.New("RATE_LIMIT_BURST must be greater than 0")
 	}
 	return nil
 }
@@ -50,6 +58,8 @@ func setDefaults() {
 	viper.SetDefault("DATABASE_CONN_MAX_LIFETIME", "1h")
 	viper.SetDefault("APP_BASE_URL", "http://localhost:8080")
 	viper.SetDefault("FREE_NOTE_LIMIT", 50)
+	viper.SetDefault("RATE_LIMIT_PER_MINUTE", 40)
+	viper.SetDefault("RATE_LIMIT_BURST", 15)
 	viper.SetDefault("EMAIL_FROM", "noreply@example.com")
 }
 
