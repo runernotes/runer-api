@@ -1,4 +1,4 @@
-.PHONY: lint test e2e build run docker-build docker-run verify
+.PHONY: lint test e2e build dev docker-build docker-run verify
 
 lint:
 	golangci-lint run
@@ -18,7 +18,7 @@ docker-build:
 clean:
 	rm server
 
-run:
+dev:
 	go run ./cmd/server/...
 
 docker-run:

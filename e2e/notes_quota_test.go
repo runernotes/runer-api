@@ -13,11 +13,19 @@ import (
 // TestQuota_FreeUser_ExceedsLimit verifies that a free user who has reached the
 // note limit (3 in test config) receives 403 QUOTA_EXCEEDED on the next create,
 // while the note at exactly the limit succeeds.
+// New registrations default to beta (unlimited), so the user is explicitly
+// downgraded to free before the quota behaviour is exercised.
 func TestQuota_FreeUser_ExceedsLimit(t *testing.T) {
-	srv, mock, _ := newTestServer(t)
+	srv, mock, db := newTestServer(t)
 	e := newExpect(t, srv)
 
-	token := registerAndLogin(t, e, mock, uuid.NewString())
+	suffix := uuid.NewString()
+	email := fmt.Sprintf("user-%s@example.com", suffix)
+	token := registerAndLogin(t, e, mock, suffix)
+
+	// Downgrade from the default beta plan to free so quota limits apply.
+	userID := getUserIDByEmail(t, db, email)
+	setUserPlan(t, db, userID, "free")
 
 	// Create notes 1, 2, 3 — all should succeed (limit is 3).
 	createNote(t, e, token)
@@ -39,11 +47,19 @@ func TestQuota_FreeUser_ExceedsLimit(t *testing.T) {
 
 // TestQuota_TrashedNotesDoNotCount verifies that trashing a note frees up quota,
 // allowing a new note to be created while staying within the limit.
+// New registrations default to beta (unlimited), so the user is explicitly
+// downgraded to free before the quota behaviour is exercised.
 func TestQuota_TrashedNotesDoNotCount(t *testing.T) {
-	srv, mock, _ := newTestServer(t)
+	srv, mock, db := newTestServer(t)
 	e := newExpect(t, srv)
 
-	token := registerAndLogin(t, e, mock, uuid.NewString())
+	suffix := uuid.NewString()
+	email := fmt.Sprintf("user-%s@example.com", suffix)
+	token := registerAndLogin(t, e, mock, suffix)
+
+	// Downgrade from the default beta plan to free so quota limits apply.
+	userID := getUserIDByEmail(t, db, email)
+	setUserPlan(t, db, userID, "free")
 
 	// Create 3 notes — at the limit.
 	note1 := createNote(t, e, token)
@@ -81,11 +97,19 @@ func TestQuota_ProUser_NoLimit(t *testing.T) {
 
 // TestQuota_UpdateWithBaseVersion_SkipsCheck verifies that updating an existing note
 // using base_version does not trigger a quota check, even when the user is at the limit.
+// New registrations default to beta (unlimited), so the user is explicitly
+// downgraded to free before the quota behaviour is exercised.
 func TestQuota_UpdateWithBaseVersion_SkipsCheck(t *testing.T) {
-	srv, mock, _ := newTestServer(t)
+	srv, mock, db := newTestServer(t)
 	e := newExpect(t, srv)
 
-	token := registerAndLogin(t, e, mock, uuid.NewString())
+	suffix := uuid.NewString()
+	email := fmt.Sprintf("user-%s@example.com", suffix)
+	token := registerAndLogin(t, e, mock, suffix)
+
+	// Downgrade from the default beta plan to free so quota limits apply.
+	userID := getUserIDByEmail(t, db, email)
+	setUserPlan(t, db, userID, "free")
 
 	// Create 3 notes — at the limit.
 	noteID := createNote(t, e, token)
@@ -115,11 +139,19 @@ func TestQuota_UpdateWithBaseVersion_SkipsCheck(t *testing.T) {
 
 // TestQuota_RePush_SkipsCheck verifies that re-pushing a note (PUT without base_version
 // to an existing note_id) does not trigger a quota check when the user is at the limit.
+// New registrations default to beta (unlimited), so the user is explicitly
+// downgraded to free before the quota behaviour is exercised.
 func TestQuota_RePush_SkipsCheck(t *testing.T) {
-	srv, mock, _ := newTestServer(t)
+	srv, mock, db := newTestServer(t)
 	e := newExpect(t, srv)
 
-	token := registerAndLogin(t, e, mock, uuid.NewString())
+	suffix := uuid.NewString()
+	email := fmt.Sprintf("user-%s@example.com", suffix)
+	token := registerAndLogin(t, e, mock, suffix)
+
+	// Downgrade from the default beta plan to free so quota limits apply.
+	userID := getUserIDByEmail(t, db, email)
+	setUserPlan(t, db, userID, "free")
 
 	// Create 3 notes — at the limit.
 	noteID := createNote(t, e, token)

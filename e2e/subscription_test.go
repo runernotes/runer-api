@@ -28,8 +28,8 @@ func getUserIDByEmail(t *testing.T, db *gorm.DB, email string) uuid.UUID {
 	return user.ID
 }
 
-// TestGetSubscription_NewUser verifies that a freshly registered user has a free plan
-// with note_count 0 and note_limit equal to the configured free note limit (3 in tests).
+// TestGetSubscription_NewUser verifies that a freshly registered user has a beta plan
+// with note_count 0 and note_limit null (unlimited) — new registrations default to beta.
 func TestGetSubscription_NewUser(t *testing.T) {
 	srv, mock, _ := newTestServer(t)
 	e := newExpect(t, srv)
@@ -41,9 +41,9 @@ func TestGetSubscription_NewUser(t *testing.T) {
 		Expect().
 		Status(http.StatusOK).
 		JSON().Object().
-		HasValue("plan", "free").
+		HasValue("plan", "beta").
 		HasValue("note_count", 0).
-		HasValue("note_limit", 3)
+		Value("note_limit").IsNull()
 }
 
 // TestGetSubscription_RequiresAuth verifies that GET /subscription without a token
