@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 	"github.com/runernotes/runer-api/internal/api"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
 )
@@ -135,7 +135,7 @@ func (h *Handler) CreateCheckout(c *echo.Context) error {
 
 	user, err := h.usersRepo.FindByID(ctx, userID)
 	if err != nil {
-		log.Error().Err(err).Str("user_id", userID.String()).Msg("checkout: failed to load user")
+		zerolog.Ctx(ctx).Error().Err(err).Str("user_id", userID.String()).Msg("checkout: failed to load user")
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{
 			Error: "failed to load user",
 			Code:  "INTERNAL_ERROR",
@@ -155,14 +155,14 @@ func (h *Handler) CreateCheckout(c *echo.Context) error {
 		}
 		newID, cerr := h.stripe.CreateCustomer(ctx, user.Email)
 		if cerr != nil {
-			log.Error().Err(cerr).Str("user_id", userID.String()).Msg("checkout: stripe customer creation failed")
+			zerolog.Ctx(ctx).Error().Err(cerr).Str("user_id", userID.String()).Msg("checkout: stripe customer creation failed")
 			return c.JSON(http.StatusBadGateway, api.ErrorResponse{
 				Error: "failed to create stripe customer",
 				Code:  "STRIPE_ERROR",
 			})
 		}
 		if err := h.usersRepo.UpdateStripeCustomerID(ctx, userID, newID); err != nil {
-			log.Error().Err(err).Str("user_id", userID.String()).Msg("checkout: failed to persist stripe customer id")
+			zerolog.Ctx(ctx).Error().Err(err).Str("user_id", userID.String()).Msg("checkout: failed to persist stripe customer id")
 			return c.JSON(http.StatusInternalServerError, api.ErrorResponse{
 				Error: "failed to persist stripe customer id",
 				Code:  "INTERNAL_ERROR",
@@ -178,14 +178,14 @@ func (h *Handler) CreateCheckout(c *echo.Context) error {
 		CancelURL:  h.billing.CancelURL,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("user_id", userID.String()).Msg("checkout: stripe session creation failed")
+		zerolog.Ctx(ctx).Error().Err(err).Str("user_id", userID.String()).Msg("checkout: stripe session creation failed")
 		return c.JSON(http.StatusBadGateway, api.ErrorResponse{
 			Error: "failed to create checkout session",
 			Code:  "STRIPE_ERROR",
 		})
 	}
 
-	log.Info().
+	zerolog.Ctx(ctx).Info().
 		Str("event", "checkout_session_created").
 		Str("user_id", userID.String()).
 		Str("stripe_customer_id", customerID).

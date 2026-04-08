@@ -7,7 +7,7 @@ import (
 	"net/url"
 
 	"github.com/labstack/echo/v5"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 	"github.com/runernotes/runer-api/internal/api"
 )
 
@@ -110,8 +110,8 @@ func (h *AuthHandler) Logout(c *echo.Context) error {
 	}
 
 	if err := h.service.Logout(c.Request().Context(), request.RefreshToken); err != nil {
-		// Log but still return 204 — don't leak token validity information
-		log.Warn().Err(err).Msg("logout error")
+		// Log but still return 204 — don't leak token validity information.
+		zerolog.Ctx(c.Request().Context()).Warn().Err(err).Msg("logout error")
 	}
 	return c.NoContent(http.StatusNoContent)
 }

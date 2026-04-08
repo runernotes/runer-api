@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/runernotes/runer-api/internal/users"
 	"github.com/runernotes/runer-api/internal/utils"
 )
@@ -63,6 +65,11 @@ func (s *AuthService) Register(ctx context.Context, email string, name string) e
 		return err
 	}
 
+	zerolog.Ctx(ctx).Info().
+		Str("event", "user_registered").
+		Str("user_id", user.ID.String()).
+		Msg("new user registered")
+
 	return s.createAndSendMagicLink(ctx, email, user.ID, true)
 }
 
@@ -111,6 +118,15 @@ func (s *AuthService) LoginWithMagicLink(ctx context.Context, token string) (*Lo
 	// window that existed when three separate DB round-trips were used.
 	userID, err := s.repository.VerifyAndConsumeMagicLinkToken(ctx, hashedToken)
 	if err != nil {
+		// Only log the security event for an intentionally invalid token.
+		// Infrastructure errors (DB timeout, connection failure) are a
+		// different failure category and must not be mischaracterised as
+		// a token attack in the audit log.
+		if errors.Is(err, ErrInvalidToken) {
+			zerolog.Ctx(ctx).Warn().
+				Str("event", "magic_link_verify_failed").
+				Msg("invalid, expired, or replayed magic link token")
+		}
 		return nil, err
 	}
 
@@ -139,6 +155,11 @@ func (s *AuthService) LoginWithMagicLink(ctx context.Context, token string) (*Lo
 	if err := s.repository.CreateRefreshToken(ctx, rt); err != nil {
 		return nil, err
 	}
+
+	zerolog.Ctx(ctx).Info().
+		Str("event", "user_login").
+		Str("user_id", userID.String()).
+		Msg("magic link verified, session created")
 
 	return &LoginResponse{
 		AccessToken:  accessToken,

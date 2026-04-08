@@ -40,6 +40,14 @@ type Config struct {
 	// size are rejected with HTTP 413 before the handler is invoked.
 	MaxRequestBody string `mapstructure:"MAX_REQUEST_BODY"`
 
+	// PostHog telemetry. When POSTHOG_API_KEY is set the logging package
+	// forwards warn-and-above log entries to PostHog as "server.log" events.
+	// POSTHOG_ENDPOINT overrides the default US endpoint — set to
+	// https://eu.i.posthog.com for EU data residency.
+	// Both fields are optional; omitting them disables PostHog forwarding.
+	PostHogAPIKey  string `mapstructure:"POSTHOG_API_KEY"`
+	PostHogEndpoint string `mapstructure:"POSTHOG_ENDPOINT"`
+
 	// Billing / Stripe. All fields are optional unless BillingEnabled is true,
 	// in which case Validate() requires the Stripe secrets and the Resend key.
 	BillingEnabled      bool   `mapstructure:"BILLING_ENABLED"`
@@ -52,6 +60,10 @@ type Config struct {
 
 func (c *Config) IsDevelopment() bool {
 	return c.Env == "development"
+}
+
+func (c *Config) IsProduction() bool {
+	return c.Env == "production"
 }
 
 // ParsedCORSOrigins splits the comma-separated CORS_ALLOWED_ORIGINS value into

@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 	"github.com/runernotes/runer-api/internal/api"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
 )
@@ -94,7 +94,7 @@ func (h *NotesHandler) GetAll(c *echo.Context) error {
 
 	notes, tombstones, hasMore, err := h.service.GetNotesSince(c.Request().Context(), userID, since, cursor, limit)
 	if err != nil {
-		log.Warn().Err(err).Msg(err.Error())
+		zerolog.Ctx(c.Request().Context()).Warn().Err(err).Msg("failed to fetch notes")
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to fetch notes", Code: "INTERNAL_ERROR"})
 	}
 

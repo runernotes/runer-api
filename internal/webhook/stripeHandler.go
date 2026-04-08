@@ -16,7 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 	"github.com/runernotes/runer-api/internal/api"
 	"github.com/stripe/stripe-go/v81"
 	"github.com/stripe/stripe-go/v81/webhook"
@@ -87,9 +87,11 @@ func (h *Handler) HandleStripe(c *echo.Context) error {
 
 	// Stripe validates signatures against the exact bytes we received, so we
 	// must read the body before any JSON parsing.
+	ctx := c.Request().Context()
+
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		log.Error().Err(err).Msg("stripe webhook: failed to read request body")
+		zerolog.Ctx(ctx).Error().Err(err).Msg("stripe webhook: failed to read request body")
 		return c.JSON(http.StatusBadRequest, api.ErrorResponse{
 			Error: "invalid request body",
 			Code:  "INVALID_BODY",
@@ -99,19 +101,18 @@ func (h *Handler) HandleStripe(c *echo.Context) error {
 	signature := c.Request().Header.Get("Stripe-Signature")
 	event, err := h.verifier.Verify(body, signature)
 	if err != nil {
-		log.Warn().Err(err).Msg("stripe webhook: signature verification failed")
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("stripe webhook: signature verification failed")
 		return c.JSON(http.StatusBadRequest, api.ErrorResponse{
 			Error: "invalid stripe signature",
 			Code:  "INVALID_SIGNATURE",
 		})
 	}
 
-	ctx := c.Request().Context()
 	if err := h.dispatch(ctx, event); err != nil {
 		// Dispatch errors are logged but do not translate to non-2xx responses:
 		// Stripe retries on failure and we want at-most-once handling for
 		// idempotent operations. Persistent errors can be investigated via logs.
-		log.Error().
+		zerolog.Ctx(ctx).Error().
 			Err(err).
 			Str("event_id", event.ID).
 			Str("event_type", string(event.Type)).
@@ -132,7 +133,7 @@ func (h *Handler) dispatch(ctx context.Context, event stripe.Event) error {
 	case "invoice.payment_failed":
 		return h.handlePaymentFailed(ctx, event)
 	default:
-		log.Debug().
+		zerolog.Ctx(ctx).Debug().
 			Str("event_type", string(event.Type)).
 			Str("event_id", event.ID).
 			Msg("stripe webhook: ignoring unhandled event type")
@@ -174,7 +175,7 @@ func (h *Handler) handleCheckoutCompleted(ctx context.Context, event stripe.Even
 		}
 	}
 
-	log.Info().
+	zerolog.Ctx(ctx).Info().
 		Str("event", "plan_upgraded").
 		Str("user_id", user.ID.String()).
 		Str("plan", "pro").
@@ -207,7 +208,7 @@ func (h *Handler) handleSubscriptionDeleted(ctx context.Context, event stripe.Ev
 		return err
 	}
 
-	log.Info().
+	zerolog.Ctx(ctx).Info().
 		Str("event", "plan_downgraded").
 		Str("user_id", user.ID.String()).
 		Str("plan", "free").
@@ -219,12 +220,12 @@ type minimalInvoice struct {
 	Customer string `json:"customer"`
 }
 
-func (h *Handler) handlePaymentFailed(_ context.Context, event stripe.Event) error {
+func (h *Handler) handlePaymentFailed(ctx context.Context, event stripe.Event) error {
 	var inv minimalInvoice
 	if err := json.Unmarshal(event.Data.Raw, &inv); err != nil {
 		return err
 	}
-	log.Warn().
+	zerolog.Ctx(ctx).Warn().
 		Str("event", "payment_failed").
 		Str("stripe_customer_id", inv.Customer).
 		Msg("stripe webhook: invoice payment failed")

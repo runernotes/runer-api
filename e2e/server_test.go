@@ -13,6 +13,8 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	internalpkg "github.com/runernotes/runer-api/internal"
 	"github.com/runernotes/runer-api/internal/config"
+	"github.com/runernotes/runer-api/internal/logging"
+	internalmw "github.com/runernotes/runer-api/internal/middleware"
 	"github.com/runernotes/runer-api/internal/subscription"
 	"github.com/runernotes/runer-api/internal/validator"
 	"github.com/runernotes/runer-api/internal/webhook"
@@ -53,8 +55,14 @@ func TestMain(m *testing.M) {
 		log.Fatalf("get connection string: %v", err)
 	}
 
-	// Connect and migrate once for the entire test run.
+	// Configure the global zerolog logger once for the entire test run.
+	// sharedCfg() has no POSTHOG_API_KEY, so Setup produces a dev ConsoleWriter
+	// with no PostHog side-effects. This ensures ZerologRequestLogger and
+	// ZerologAccessLogger have a properly initialised global logger to derive
+	// per-request loggers from.
 	cfg := sharedCfg()
+	shutdown := logging.Setup(cfg)
+	defer shutdown()
 	db, err := config.Connect(cfg)
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
@@ -199,7 +207,9 @@ func newTestServer(t *testing.T, opts ...testServerOpts) (*httptest.Server, *moc
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
 	e.Use(middleware.BodyLimit(cfg.MaxRequestBodyBytes()))
-	e.Use(middleware.RequestLogger())
+	e.Use(middleware.RequestID())
+	e.Use(internalmw.ZerologRequestLogger())
+	e.Use(internalmw.ZerologAccessLogger())
 
 	internalpkg.RegisterRoutes(e, db, cfg, internalpkg.RouteOptions{
 		EmailSender:         mock,
