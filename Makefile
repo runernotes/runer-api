@@ -31,7 +31,7 @@ verify: lint test e2e build clean
 # Release
 # ---------------------------------------------------------------------------
 
-release: guard-TAG
+release: guard-TAG verify
 	git tag $(TAG)
 	git push origin $(TAG)
 

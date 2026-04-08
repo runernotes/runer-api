@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -27,6 +28,11 @@ type Config struct {
 	ResendAPIKey            string        `mapstructure:"RESEND_API_KEY"`
 	EmailFrom               string        `mapstructure:"EMAIL_FROM"`
 
+	// CORSAllowedOrigins is a comma-separated list of origins the server will
+	// reflect in Access-Control-Allow-Origin responses. Set via CORS_ALLOWED_ORIGINS.
+	// Use ParsedCORSOrigins() to obtain the split slice for use in middleware.
+	CORSAllowedOrigins string `mapstructure:"CORS_ALLOWED_ORIGINS"`
+
 	// Billing / Stripe. All fields are optional unless BillingEnabled is true,
 	// in which case Validate() requires the Stripe secrets and the Resend key.
 	BillingEnabled      bool   `mapstructure:"BILLING_ENABLED"`
@@ -39,6 +45,23 @@ type Config struct {
 
 func (c *Config) IsDevelopment() bool {
 	return c.Env == "development"
+}
+
+// ParsedCORSOrigins splits the comma-separated CORS_ALLOWED_ORIGINS value into
+// a slice of trimmed, non-empty origin strings ready for use in Echo's CORS
+// middleware. Returns nil when the raw value is empty.
+func (c *Config) ParsedCORSOrigins() []string {
+	if c.CORSAllowedOrigins == "" {
+		return nil
+	}
+	parts := strings.Split(c.CORSAllowedOrigins, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func (c *Config) Validate() error {
@@ -88,6 +111,11 @@ func setDefaults() {
 	viper.SetDefault("RATE_LIMIT_PER_MINUTE", 40)
 	viper.SetDefault("RATE_LIMIT_BURST", 15)
 	viper.SetDefault("EMAIL_FROM", "noreply@example.com")
+
+	// Default to localhost-only origins so the server is usable out of the box
+	// for local development without exposing the API to arbitrary web origins.
+	// Override with CORS_ALLOWED_ORIGINS in production (Dokploy / env var).
+	viper.SetDefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:1420,http://localhost:8080")
 
 	viper.SetDefault("BILLING_ENABLED", false)
 	viper.SetDefault("STRIPE_SUCCESS_URL", "https://runer.app/billing/success")

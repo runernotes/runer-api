@@ -121,3 +121,66 @@ func TestConfig_BillingDefaults(t *testing.T) {
 	assert.Equal(t, "https://runer.app/billing/success", viper.GetString("STRIPE_SUCCESS_URL"))
 	assert.Equal(t, "https://runer.app/billing/cancel", viper.GetString("STRIPE_CANCEL_URL"))
 }
+
+func TestConfig_CORSAllowedOrigins_Default(t *testing.T) {
+	// Cannot run in parallel: mutates global viper state.
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	setDefaults()
+
+	raw := viper.GetString("CORS_ALLOWED_ORIGINS")
+	assert.NotEmpty(t, raw, "CORS_ALLOWED_ORIGINS must have a non-empty default")
+
+	// The default must cover the standard Vite dev ports and the API itself.
+	cfg := Config{CORSAllowedOrigins: raw}
+	origins := cfg.ParsedCORSOrigins()
+	assert.Contains(t, origins, "http://localhost:5173")
+	assert.Contains(t, origins, "http://localhost:1420")
+	assert.Contains(t, origins, "http://localhost:8080")
+}
+
+func TestConfig_ParsedCORSOrigins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{
+			name: "single origin",
+			raw:  "https://runer.app",
+			want: []string{"https://runer.app"},
+		},
+		{
+			name: "multiple origins",
+			raw:  "https://runer.app,app://localhost,capacitor://localhost",
+			want: []string{"https://runer.app", "app://localhost", "capacitor://localhost"},
+		},
+		{
+			name: "whitespace trimmed",
+			raw:  "https://runer.app , app://localhost , http://localhost",
+			want: []string{"https://runer.app", "app://localhost", "http://localhost"},
+		},
+		{
+			name: "empty entries skipped",
+			raw:  "https://runer.app,,http://localhost",
+			want: []string{"https://runer.app", "http://localhost"},
+		},
+		{
+			name: "empty string returns nil",
+			raw:  "",
+			want: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Config{CORSAllowedOrigins: tc.raw}
+			got := cfg.ParsedCORSOrigins()
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

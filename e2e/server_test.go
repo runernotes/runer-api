@@ -82,6 +82,9 @@ func sharedCfg() *config.Config {
 		AppBaseURL:              "http://localhost",
 		// Use a small limit so quota tests don't need to create 50 notes.
 		FreeNoteLimit: 3,
+		// Cover the real client origins so CORS e2e tests work against realistic values.
+		// http://localhost covers Capacitor Android; other entries cover Electron and Vite dev.
+		CORSAllowedOrigins: "app://localhost,capacitor://localhost,http://localhost,http://localhost:5173,http://localhost:1420",
 	}
 }
 
@@ -178,6 +181,11 @@ func newTestServer(t *testing.T, opts ...testServerOpts) (*httptest.Server, *moc
 	e := echo.New()
 	e.Validator = validator.New()
 	e.Use(middleware.Recover())
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: cfg.ParsedCORSOrigins(),
+		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"Authorization", "Content-Type"},
+	}))
 	e.Use(middleware.RequestLogger())
 
 	internalpkg.RegisterRoutes(e, db, cfg, internalpkg.RouteOptions{
