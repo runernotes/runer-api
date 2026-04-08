@@ -111,6 +111,20 @@ func TestConfig_JWTTokenDuration_Default(t *testing.T) {
 	assert.Equal(t, 15*time.Minute, got, "JWT_TOKEN_DURATION default must be 15m")
 }
 
+// TestConfig_Port_Default asserts that the PORT default is the integer 8080
+// with no colon prefix — the bind address colon is added by the server at
+// startup via fmt.Sprintf(":%d", cfg.Port).
+func TestConfig_Port_Default(t *testing.T) {
+	// Cannot run in parallel: mutates global viper state.
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	setDefaults()
+
+	got := viper.GetInt("PORT")
+	assert.Equal(t, 8080, got, "PORT default must be integer 8080")
+}
+
 func TestConfig_BillingDefaults(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

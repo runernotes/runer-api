@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -59,7 +60,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := (echo.StartConfig{Address: cfg.Port, HideBanner: true}).Start(ctx, e); err != nil {
+	if err := (echo.StartConfig{Address: fmt.Sprintf(":%d", cfg.Port), HideBanner: true}).Start(ctx, e); err != nil {
 		log.Fatal().Err(err).Msg("server failed")
 	}
 }

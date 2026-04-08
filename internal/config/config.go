@@ -12,7 +12,7 @@ import (
 )
 
 type Config struct {
-	Port                    string        `mapstructure:"PORT"`
+	Port                    int           `mapstructure:"PORT"`
 	Env                     string        `mapstructure:"ENV"`
 	JWTSecret               string        `mapstructure:"JWT_SECRET"`
 	JWTTokenDuration        time.Duration `mapstructure:"JWT_TOKEN_DURATION"`
@@ -136,7 +136,7 @@ func (c *Config) Validate() error {
 }
 
 func setDefaults() {
-	viper.SetDefault("PORT", ":8080")
+	viper.SetDefault("PORT", 8080)
 	viper.SetDefault("ENV", "development")
 	// 15m matches SPEC-API §4.1 / NFR-1: short access token TTL minimises the window
 	// during which a revoked or plan-changed token remains valid.
