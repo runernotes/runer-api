@@ -7,3 +7,9 @@ type SubscriptionResponse struct {
 	NoteCount int64  `json:"note_count"`
 	NoteLimit *int   `json:"note_limit"`
 }
+
+// CheckoutResponse is the response body for POST /api/v1/subscription/checkout.
+// It carries the hosted Stripe Checkout URL that the caller must redirect to.
+type CheckoutResponse struct {
+	CheckoutURL string `json:"checkout_url"`
+}

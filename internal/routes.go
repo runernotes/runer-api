@@ -14,12 +14,21 @@ import (
 	"github.com/runernotes/runer-api/internal/subscription"
 	"github.com/runernotes/runer-api/internal/users"
 	"github.com/runernotes/runer-api/internal/utils"
+	"github.com/runernotes/runer-api/internal/webhook"
 	"gorm.io/gorm"
 )
 
 // RouteOptions allows optional overrides when registering routes (e.g. for testing).
 type RouteOptions struct {
 	EmailSender email.Sender
+	// StripeClient, when non-nil, overrides the real Stripe SDK client used by
+	// the subscription handler. Tests inject an in-memory fake; production
+	// callers leave this nil so NewStripeClient is used.
+	StripeClient subscription.StripeClient
+	// StripeEventVerifier, when non-nil, overrides the real Stripe webhook
+	// signature verifier. Tests inject a fake verifier that accepts any
+	// signature; production leaves this nil.
+	StripeEventVerifier webhook.EventVerifier
 }
 
 // notesUsersRepoAdapter bridges users.UsersRepository to the notes.usersRepository
@@ -48,7 +57,37 @@ func (a *subscriptionUsersRepoAdapter) FindByID(ctx context.Context, id uuid.UUI
 	if err != nil {
 		return subscription.UserRecord{}, err
 	}
-	return subscription.UserRecord{Plan: string(u.Plan)}, nil
+	return subscription.UserRecord{
+		Plan:             string(u.Plan),
+		Email:            u.Email,
+		StripeCustomerID: u.StripeCustomerID,
+	}, nil
+}
+
+func (a *subscriptionUsersRepoAdapter) UpdateStripeCustomerID(ctx context.Context, id uuid.UUID, stripeCustomerID string) error {
+	return a.inner.UpdateStripeCustomerID(ctx, id, stripeCustomerID)
+}
+
+// webhookUsersRepoAdapter bridges users.UsersRepository to the webhook
+// package's narrow UsersRepository interface.
+type webhookUsersRepoAdapter struct {
+	inner *users.UsersRepository
+}
+
+func (a *webhookUsersRepoAdapter) FindByStripeCustomerID(ctx context.Context, stripeCustomerID string) (webhook.UserRecord, error) {
+	u, err := a.inner.FindByStripeCustomerID(ctx, stripeCustomerID)
+	if err != nil {
+		return webhook.UserRecord{}, err
+	}
+	return webhook.UserRecord{ID: u.ID}, nil
+}
+
+func (a *webhookUsersRepoAdapter) UpdatePlan(ctx context.Context, id uuid.UUID, plan string) error {
+	return a.inner.UpdatePlan(ctx, id, users.Plan(plan))
+}
+
+func (a *webhookUsersRepoAdapter) UpdateStripeSubscriptionID(ctx context.Context, id uuid.UUID, subID *string) error {
+	return a.inner.UpdateStripeSubscriptionID(ctx, id, subID)
 }
 
 // RegisterRoutes wires all application dependencies and registers HTTP routes.
@@ -84,7 +123,39 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 	notesHandler := notes.NewNotesHandler(notesService)
 
 	subscriptionUsersRepo := &subscriptionUsersRepoAdapter{inner: usersRepository}
-	subscriptionHandler := subscription.NewHandler(subscriptionUsersRepo, notesRepository, cfg.FreeNoteLimit)
+
+	// Stripe client: use the injected fake if tests provided one, otherwise
+	// build the real SDK client only when billing is enabled. Leaving the
+	// client nil in self-hosted mode ensures CreateCheckout returns 501 even
+	// if somebody accidentally forgets to also disable the route.
+	stripeClient := opt.StripeClient
+	if stripeClient == nil && cfg.BillingEnabled {
+		stripeClient = subscription.NewStripeClient(cfg.StripeSecretKey)
+	}
+
+	subscriptionHandler := subscription.NewHandler(
+		subscriptionUsersRepo,
+		notesRepository,
+		cfg.FreeNoteLimit,
+		subscription.BillingConfig{
+			Enabled:    cfg.BillingEnabled,
+			PriceID:    cfg.StripePriceID,
+			SuccessURL: cfg.StripeSuccessURL,
+			CancelURL:  cfg.StripeCancelURL,
+		},
+		stripeClient,
+	)
+
+	// Webhook verifier: inject-for-test, else real stripe-go verifier when billing is on.
+	stripeVerifier := opt.StripeEventVerifier
+	if stripeVerifier == nil && cfg.BillingEnabled && cfg.StripeWebhookSecret != "" {
+		stripeVerifier = webhook.NewSDKVerifier(cfg.StripeWebhookSecret)
+	}
+	webhookHandler := webhook.NewHandler(
+		cfg.BillingEnabled,
+		stripeVerifier,
+		&webhookUsersRepoAdapter{inner: usersRepository},
+	)
 
 	e.GET("/health", func(c *echo.Context) error {
 		return (*c).JSON(http.StatusOK, map[string]string{"status": "ok"})
@@ -111,8 +182,12 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 	notesGroup.POST("/:note_id/restore", notesHandler.Restore)
 	notesGroup.DELETE("/:note_id/purge", notesHandler.Purge)
 
-	// Protected subscription route
+	// Protected subscription routes
 	v1.GET("/subscription", subscriptionHandler.GetSubscription, authMW)
+	v1.POST("/subscription/checkout", subscriptionHandler.CreateCheckout, authMW)
+
+	// Unauthenticated webhook — must not live under authMW.
+	v1.POST("/webhooks/stripe", webhookHandler.HandleStripe)
 
 	// Protected users routes
 	v1.GET("/users/me", usersHandler.GetMe, authMW)

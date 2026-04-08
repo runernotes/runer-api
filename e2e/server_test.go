@@ -13,7 +13,9 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	internalpkg "github.com/runernotes/runer-api/internal"
 	"github.com/runernotes/runer-api/internal/config"
+	"github.com/runernotes/runer-api/internal/subscription"
 	"github.com/runernotes/runer-api/internal/validator"
+	"github.com/runernotes/runer-api/internal/webhook"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -119,19 +121,57 @@ func (m *mockEmailSender) lastIsNewUser() bool {
 	return m.isNewUser
 }
 
+// testServerOpts lets individual tests override parts of the server wiring
+// without changing the signature of newTestServer for the majority of tests.
+// A nil value or zero-valued struct produces the default configuration: no
+// billing, no Stripe clients.
+type testServerOpts struct {
+	// billingEnabled toggles cfg.BillingEnabled and the related Stripe config
+	// fields. When true, tests must also provide stripeClient and
+	// stripeVerifier, otherwise checkout/webhook calls will fail.
+	billingEnabled bool
+	stripePriceID  string
+	stripeClient   subscription.StripeClient
+	stripeVerifier webhook.EventVerifier
+}
+
 // newTestServer connects to the shared Postgres database, wires the full Echo app with a
 // fresh mockEmailSender, and returns an httptest.Server ready for requests. Only the
 // database is shared across tests; the Echo instance, HTTP server, and mock are
-// created fresh for each test.
-func newTestServer(t *testing.T) (*httptest.Server, *mockEmailSender, *gorm.DB) {
+// created fresh for each test. Pass an optional testServerOpts to customise
+// billing behaviour.
+func newTestServer(t *testing.T, opts ...testServerOpts) (*httptest.Server, *mockEmailSender, *gorm.DB) {
 	t.Helper()
 
+	var opt testServerOpts
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	cfg := sharedCfg()
+	if opt.billingEnabled {
+		cfg.BillingEnabled = true
+		cfg.StripeSecretKey = "sk_test_e2e"
+		cfg.StripeWebhookSecret = "whsec_e2e"
+		cfg.StripePriceID = opt.stripePriceID
+		if cfg.StripePriceID == "" {
+			cfg.StripePriceID = "price_e2e"
+		}
+		cfg.StripeSuccessURL = "https://runer.app/billing/success"
+		cfg.StripeCancelURL = "https://runer.app/billing/cancel"
+	}
 
 	db, err := config.Connect(cfg)
 	if err != nil {
 		t.Fatalf("connect to database: %v", err)
 	}
+	// Close the connection pool when the test ends — without this, Postgres
+	// quickly exhausts its max_connections as the full e2e suite runs.
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 
 	mock := &mockEmailSender{}
 
@@ -141,7 +181,9 @@ func newTestServer(t *testing.T) (*httptest.Server, *mockEmailSender, *gorm.DB) 
 	e.Use(middleware.RequestLogger())
 
 	internalpkg.RegisterRoutes(e, db, cfg, internalpkg.RouteOptions{
-		EmailSender: mock,
+		EmailSender:         mock,
+		StripeClient:        opt.stripeClient,
+		StripeEventVerifier: opt.stripeVerifier,
 	})
 
 	srv := httptest.NewServer(e)
