@@ -140,6 +140,53 @@ func TestConfig_CORSAllowedOrigins_Default(t *testing.T) {
 	assert.Contains(t, origins, "http://localhost:8080")
 }
 
+// TestConfig_MaxRequestBodyBytes_Default asserts that the viper default for
+// MAX_REQUEST_BODY is "1M" and resolves to exactly 1 MiB.
+func TestConfig_MaxRequestBodyBytes_Default(t *testing.T) {
+	// Cannot run in parallel: mutates global viper state.
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	setDefaults()
+
+	raw := viper.GetString("MAX_REQUEST_BODY")
+	assert.Equal(t, "1M", raw, "MAX_REQUEST_BODY default must be 1M")
+
+	cfg := Config{MaxRequestBody: raw}
+	assert.Equal(t, int64(1<<20), cfg.MaxRequestBodyBytes())
+}
+
+// TestConfig_MaxRequestBodyBytes_Parsing covers the full range of supported
+// suffix formats and edge cases for MaxRequestBodyBytes().
+func TestConfig_MaxRequestBodyBytes_Parsing(t *testing.T) {
+	t.Parallel()
+
+	const mib = int64(1 << 20) // fallback default
+
+	tests := []struct {
+		name  string
+		input string
+		want  int64
+	}{
+		{"kilobytes", "512K", 512 * (1 << 10)},
+		{"megabytes", "2M", 2 * (1 << 20)},
+		{"gigabytes", "1G", 1 << 30},
+		{"bare bytes", "65536", 65536},
+		{"empty falls back to 1M", "", mib},
+		{"invalid text falls back to 1M", "banana", mib},
+		{"zero value falls back to 1M", "0M", mib},
+		{"negative value falls back to 1M", "-1M", mib},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Config{MaxRequestBody: tc.input}
+			assert.Equal(t, tc.want, cfg.MaxRequestBodyBytes())
+		})
+	}
+}
+
 func TestConfig_ParsedCORSOrigins(t *testing.T) {
 	t.Parallel()
 

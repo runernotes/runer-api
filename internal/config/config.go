@@ -3,9 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	echomw "github.com/labstack/echo/v5/middleware"
 	"github.com/spf13/viper"
 )
 
@@ -32,6 +34,11 @@ type Config struct {
 	// reflect in Access-Control-Allow-Origin responses. Set via CORS_ALLOWED_ORIGINS.
 	// Use ParsedCORSOrigins() to obtain the split slice for use in middleware.
 	CORSAllowedOrigins string `mapstructure:"CORS_ALLOWED_ORIGINS"`
+
+	// MaxRequestBody is the maximum size of an incoming request body, expressed
+	// in Echo's BodyLimit format (e.g. "1M", "512K"). Requests exceeding this
+	// size are rejected with HTTP 413 before the handler is invoked.
+	MaxRequestBody string `mapstructure:"MAX_REQUEST_BODY"`
 
 	// Billing / Stripe. All fields are optional unless BillingEnabled is true,
 	// in which case Validate() requires the Stripe secrets and the Resend key.
@@ -62,6 +69,41 @@ func (c *Config) ParsedCORSOrigins() []string {
 		}
 	}
 	return out
+}
+
+// MaxRequestBodyBytes parses the human-readable MAX_REQUEST_BODY string into
+// bytes as int64. Supported suffixes are K (kibibytes), M (mebibytes), and
+// G (gibibytes); a bare integer is treated as bytes. Multiplier constants come
+// from Echo's middleware package so we stay in sync with how Echo itself counts.
+// Parsing errors fall back silently to 1 MiB so a misconfigured value never
+// brings the server down.
+func (c *Config) MaxRequestBodyBytes() int64 {
+	raw := strings.TrimSpace(c.MaxRequestBody)
+	if raw == "" {
+		return echomw.MB
+	}
+
+	// Reuse Echo's own size constants (KB, MB, GB) — no need to re-derive them.
+	suffixes := map[byte]int64{
+		'K': echomw.KB,
+		'M': echomw.MB,
+		'G': echomw.GB,
+	}
+
+	last := raw[len(raw)-1]
+	if multiplier, ok := suffixes[last]; ok {
+		n, err := strconv.ParseInt(raw[:len(raw)-1], 10, 64)
+		if err != nil || n <= 0 {
+			return echomw.MB
+		}
+		return n * multiplier
+	}
+
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n <= 0 {
+		return echomw.MB
+	}
+	return n
 }
 
 func (c *Config) Validate() error {
@@ -116,6 +158,10 @@ func setDefaults() {
 	// for local development without exposing the API to arbitrary web origins.
 	// Override with CORS_ALLOWED_ORIGINS in production (Dokploy / env var).
 	viper.SetDefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:1420,http://localhost:8080")
+
+	// 1 MB is generous for a note-taking API (notes are encrypted, roughly text-sized)
+	// while still protecting against accidental or malicious oversized uploads.
+	viper.SetDefault("MAX_REQUEST_BODY", "1M")
 
 	viper.SetDefault("BILLING_ENABLED", false)
 	viper.SetDefault("STRIPE_SUCCESS_URL", "https://runer.app/billing/success")

@@ -85,6 +85,9 @@ func sharedCfg() *config.Config {
 		// Cover the real client origins so CORS e2e tests work against realistic values.
 		// http://localhost covers Capacitor Android; other entries cover Electron and Vite dev.
 		CORSAllowedOrigins: "app://localhost,capacitor://localhost,http://localhost,http://localhost:5173,http://localhost:1420",
+		// 1M matches the production default and is large enough for all normal test payloads.
+		// Tests that need a tighter limit pass maxRequestBody via testServerOpts.
+		MaxRequestBody: "1M",
 	}
 }
 
@@ -136,6 +139,12 @@ type testServerOpts struct {
 	stripePriceID  string
 	stripeClient   subscription.StripeClient
 	stripeVerifier webhook.EventVerifier
+
+	// maxRequestBody overrides the body size limit for this server instance.
+	// Expressed in the same human-readable format as MAX_REQUEST_BODY env var
+	// (e.g. "1K", "512K", "1M"). Defaults to sharedCfg().MaxRequestBody when
+	// empty.
+	maxRequestBody string
 }
 
 // newTestServer connects to the shared Postgres database, wires the full Echo app with a
@@ -163,6 +172,9 @@ func newTestServer(t *testing.T, opts ...testServerOpts) (*httptest.Server, *moc
 		cfg.StripeSuccessURL = "https://runer.app/billing/success"
 		cfg.StripeCancelURL = "https://runer.app/billing/cancel"
 	}
+	if opt.maxRequestBody != "" {
+		cfg.MaxRequestBody = opt.maxRequestBody
+	}
 
 	db, err := config.Connect(cfg)
 	if err != nil {
@@ -186,6 +198,7 @@ func newTestServer(t *testing.T, opts ...testServerOpts) (*httptest.Server, *moc
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
+	e.Use(middleware.BodyLimit(cfg.MaxRequestBodyBytes()))
 	e.Use(middleware.RequestLogger())
 
 	internalpkg.RegisterRoutes(e, db, cfg, internalpkg.RouteOptions{

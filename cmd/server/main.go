@@ -44,6 +44,9 @@ func main() {
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
+	// Bound request bodies early so oversized payloads are rejected before
+	// any handler or auth logic runs, preventing OOM on large uploads.
+	e.Use(middleware.BodyLimit(cfg.MaxRequestBodyBytes()))
 	e.Use(middleware.RequestLogger())
 	e.Use(internalmw.RateLimiter(cfg.RateLimitPerMinute, cfg.RateLimitBurst))
 
