@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+	"github.com/runernotes/runer-api/internal/analytics"
 	"github.com/runernotes/runer-api/internal/auth"
 	"github.com/runernotes/runer-api/internal/config"
 	"github.com/runernotes/runer-api/internal/email"
@@ -29,6 +30,10 @@ type RouteOptions struct {
 	// signature verifier. Tests inject a fake verifier that accepts any
 	// signature; production leaves this nil.
 	StripeEventVerifier webhook.EventVerifier
+	// Tracker is the analytics event tracker injected into handlers. When nil,
+	// a NoopTracker is used so tests that don't care about analytics still work
+	// without any extra setup.
+	Tracker analytics.Tracker
 }
 
 // notesUsersRepoAdapter bridges users.UsersRepository to the notes.usersRepository
@@ -95,14 +100,23 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 	jwtManager := utils.NewJWTManager(cfg.JWTSecret, cfg.JWTTokenDuration, cfg.JWTRefreshTokenDuration)
 	authMW := internalmw.AuthMiddleware(jwtManager)
 
-	usersRepository := users.NewUsersRepository(db)
-	usersService := users.NewUsersService(usersRepository)
-	usersHandler := users.NewUsersHandler(usersService)
-
 	var opt RouteOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+
+	// Resolve the analytics tracker. When nil is provided (e.g. in tests that
+	// don't care about analytics) fall back to a no-op so no special setup is
+	// needed in every test that calls RegisterRoutes.
+	tracker := opt.Tracker
+	if tracker == nil {
+		tracker = analytics.NoopTracker{}
+	}
+
+	usersRepository := users.NewUsersRepository(db)
+	usersService := users.NewUsersService(usersRepository)
+	usersHandler := users.NewUsersHandler(usersService, tracker)
+
 	sender := opt.EmailSender
 	if sender == nil {
 		sender = email.NewResendSender(cfg.ResendAPIKey, cfg.EmailFrom)
@@ -111,12 +125,12 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 
 	authRepository := auth.NewAuthRepository(db)
 	authService := auth.NewAuthService(authRepository, usersRepository, emailService, jwtManager, cfg.MagicLinkTokenDuration, cfg.JWTRefreshTokenDuration)
-	authHandler := auth.NewAuthHandler(authService)
+	authHandler := auth.NewAuthHandler(authService, tracker)
 
 	notesRepository := notes.NewNotesRepository(db)
 	notesUsersRepo := &notesUsersRepoAdapter{inner: usersRepository}
 	notesService := notes.NewNotesService(notesRepository, notesUsersRepo, cfg.FreeNoteLimit)
-	notesHandler := notes.NewNotesHandler(notesService)
+	notesHandler := notes.NewNotesHandler(notesService, tracker)
 
 	subscriptionUsersRepo := &subscriptionUsersRepoAdapter{inner: usersRepository}
 
@@ -140,6 +154,7 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 			CancelURL:  cfg.StripeCancelURL,
 		},
 		stripeClient,
+		tracker,
 	)
 
 	// Webhook verifier: inject-for-test, else real stripe-go verifier when billing is on.

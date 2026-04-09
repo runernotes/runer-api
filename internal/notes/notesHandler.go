@@ -12,12 +12,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog"
+	"github.com/runernotes/runer-api/internal/analytics"
 	"github.com/runernotes/runer-api/internal/api"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
 )
 
 type NotesHandler struct {
 	service service
+	tracker analytics.Tracker
 }
 
 const defaultPageSize = 100
@@ -30,14 +32,14 @@ const deltaPageSize = 100
 type service interface {
 	GetNotesSince(ctx context.Context, userID uuid.UUID, since *time.Time, cursor *NoteCursor, limit int) ([]Note, []NoteTombstone, bool, error)
 	GetNoteByID(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error)
-	UpsertNote(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, encryptedPayload []byte, baseVersion *time.Time) (*Note, error)
+	UpsertNote(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, encryptedPayload []byte, baseVersion *time.Time) (*Note, bool, error)
 	TrashNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
 	RestoreNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) (*Note, error)
 	PurgeNote(ctx context.Context, noteID uuid.UUID, userID uuid.UUID) error
 }
 
-func NewNotesHandler(service service) *NotesHandler {
-	return &NotesHandler{service: service}
+func NewNotesHandler(service service, tracker analytics.Tracker) *NotesHandler {
+	return &NotesHandler{service: service, tracker: tracker}
 }
 
 func getUserID(c *echo.Context) (uuid.UUID, error) {
@@ -185,7 +187,7 @@ func (h *NotesHandler) Upsert(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, api.ErrorResponse{Error: "encrypted_payload must be valid base64", Code: "INVALID_PAYLOAD"})
 	}
 
-	note, err := h.service.UpsertNote(c.Request().Context(), userID, noteID, payloadBytes, req.BaseVersion)
+	note, created, err := h.service.UpsertNote(c.Request().Context(), userID, noteID, payloadBytes, req.BaseVersion)
 	if err != nil {
 		var conflictErr *ConflictError
 		if errors.As(err, &conflictErr) {
@@ -195,9 +197,16 @@ func (h *NotesHandler) Upsert(c *echo.Context) error {
 			return c.JSON(http.StatusNotFound, api.ErrorResponse{Error: "note not found", Code: "NOT_FOUND"})
 		}
 		if errors.Is(err, ErrQuotaExceeded) {
+			h.tracker.Capture("note.quota_exceeded", userID.String(), nil)
 			return c.JSON(http.StatusForbidden, api.ErrorResponse{Error: "Quota exceeded", Code: "QUOTA_EXCEEDED"})
 		}
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to save note", Code: "INTERNAL_ERROR"})
+	}
+
+	if created {
+		h.tracker.Capture("note.created", userID.String(), map[string]any{"note_id": noteID.String()})
+	} else {
+		h.tracker.Capture("note.updated", userID.String(), map[string]any{"note_id": noteID.String()})
 	}
 
 	return c.JSON(http.StatusOK, toNoteResponse(note))
@@ -222,6 +231,7 @@ func (h *NotesHandler) Trash(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to trash note", Code: "INTERNAL_ERROR"})
 	}
 
+	h.tracker.Capture("note.trashed", userID.String(), map[string]any{"note_id": noteID.String()})
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -245,6 +255,7 @@ func (h *NotesHandler) Restore(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to restore note", Code: "INTERNAL_ERROR"})
 	}
 
+	h.tracker.Capture("note.restored", userID.String(), map[string]any{"note_id": noteID.String()})
 	return c.JSON(http.StatusOK, toNoteResponse(note))
 }
 
@@ -267,5 +278,6 @@ func (h *NotesHandler) Purge(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to purge note", Code: "INTERNAL_ERROR"})
 	}
 
+	h.tracker.Capture("note.purged", userID.String(), map[string]any{"note_id": noteID.String()})
 	return c.NoContent(http.StatusNoContent)
 }

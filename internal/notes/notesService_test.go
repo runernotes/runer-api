@@ -404,8 +404,9 @@ func TestUpsertNote_QuotaExceeded_NewNote(t *testing.T) {
 	}
 
 	svc := newServiceWithQuota(repo, usersRepo, limit)
-	_, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	_, created, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
 	require.ErrorIs(t, err, ErrQuotaExceeded)
+	assert.False(t, created)
 }
 
 // TestUpsertNote_QuotaNotExceeded_NewNote verifies that a free user creating a note
@@ -442,9 +443,10 @@ func TestUpsertNote_QuotaNotExceeded_NewNote(t *testing.T) {
 	}
 
 	svc := newServiceWithQuota(repo, usersRepo, limit)
-	note, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	note, created, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
 	require.NoError(t, err)
 	require.NotNil(t, note)
+	assert.True(t, created, "first upsert of a note must be reported as created")
 }
 
 // TestUpsertNote_ProUser_SkipsQuota verifies that a pro user can create notes beyond
@@ -483,9 +485,10 @@ func TestUpsertNote_ProUser_SkipsQuota(t *testing.T) {
 	}
 
 	svc := newServiceWithQuota(repo, usersRepo, limit)
-	note, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	note, created, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
 	require.NoError(t, err)
 	require.NotNil(t, note)
+	assert.True(t, created, "a new note from a pro user must be reported as created")
 }
 
 // TestUpsertNote_WithBaseVersion_SkipsQuota verifies that an update with a base_version
@@ -522,9 +525,10 @@ func TestUpsertNote_WithBaseVersion_SkipsQuota(t *testing.T) {
 	}
 
 	svc := newServiceWithQuota(repo, usersRepo, limit)
-	note, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), &baseVersion)
+	note, created, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), &baseVersion)
 	require.NoError(t, err)
 	require.NotNil(t, note)
+	assert.False(t, created, "a versioned update must not be reported as created")
 }
 
 // TestUpsertNote_ExistingNote_NoBaseVersion_SkipsQuota verifies that a re-push
@@ -561,8 +565,9 @@ func TestUpsertNote_ExistingNote_NoBaseVersion_SkipsQuota(t *testing.T) {
 	}
 
 	svc := newServiceWithQuota(repo, usersRepo, limit)
-	note, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	note, created, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
 	require.NoError(t, err)
 	require.NotNil(t, note)
 	require.True(t, upsertCalled)
+	assert.False(t, created, "a re-push of an existing note must not be reported as created")
 }

@@ -22,6 +22,9 @@ type LogoutRequest struct {
 }
 
 type LoginResponse struct {
+	// UserID is the authenticated user's UUID. Clients can use this to
+	// initialise their local state without needing to decode the JWT.
+	UserID       string `json:"user_id"`
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+	"github.com/runernotes/runer-api/internal/analytics"
 	"github.com/runernotes/runer-api/internal/api"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
 )
@@ -20,11 +21,12 @@ type userService interface {
 // UsersHandler handles user-related HTTP requests.
 type UsersHandler struct {
 	service userService
+	tracker analytics.Tracker
 }
 
-// NewUsersHandler constructs a UsersHandler with the given service.
-func NewUsersHandler(service userService) *UsersHandler {
-	return &UsersHandler{service: service}
+// NewUsersHandler constructs a UsersHandler with the given service and tracker.
+func NewUsersHandler(service userService, tracker analytics.Tracker) *UsersHandler {
+	return &UsersHandler{service: service, tracker: tracker}
 }
 
 // getUserID extracts the authenticated user's UUID from the Echo context.
@@ -69,5 +71,6 @@ func (h *UsersHandler) Activate(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "failed to activate user", Code: "INTERNAL_ERROR"})
 	}
 
+	h.tracker.Capture("user.activated", userID.String(), nil)
 	return c.NoContent(http.StatusNoContent)
 }

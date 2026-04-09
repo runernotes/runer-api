@@ -162,6 +162,7 @@ func (s *AuthService) LoginWithMagicLink(ctx context.Context, token string) (*Lo
 		Msg("magic link verified, session created")
 
 	return &LoginResponse{
+		UserID:       userID.String(),
 		AccessToken:  accessToken,
 		RefreshToken: rawRefreshToken,
 	}, nil

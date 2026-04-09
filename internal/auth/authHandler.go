@@ -8,11 +8,13 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog"
+	"github.com/runernotes/runer-api/internal/analytics"
 	"github.com/runernotes/runer-api/internal/api"
 )
 
 type AuthHandler struct {
 	service service
+	tracker analytics.Tracker
 }
 
 type service interface {
@@ -23,8 +25,8 @@ type service interface {
 	Logout(ctx context.Context, rawRefreshToken string) error
 }
 
-func NewAuthHandler(service service) *AuthHandler {
-	return &AuthHandler{service: service}
+func NewAuthHandler(service service, tracker analytics.Tracker) *AuthHandler {
+	return &AuthHandler{service: service, tracker: tracker}
 }
 
 func (h *AuthHandler) RequestMagicLink(c *echo.Context) error {
@@ -52,8 +54,14 @@ func (h *AuthHandler) Register(c *echo.Context) error {
 	}
 
 	err := h.service.Register(c.Request().Context(), request.Email, request.Name)
-	if err != nil && !errors.Is(err, ErrUserAlreadyExists) {
-		return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "registration failed", Code: "REGISTRATION_FAILED"})
+	if err != nil {
+		if !errors.Is(err, ErrUserAlreadyExists) {
+			return c.JSON(http.StatusInternalServerError, api.ErrorResponse{Error: "registration failed", Code: "REGISTRATION_FAILED"})
+		}
+		// Existing user — silently do nothing (email enumeration prevention).
+	} else {
+		// Genuinely new user registered.
+		h.tracker.Capture("user.registered", request.Email, nil)
 	}
 
 	return c.JSON(http.StatusOK, api.MessageResponse{Message: "If the email is not registered, a confirmation link has been sent."})
@@ -72,6 +80,8 @@ func (h *AuthHandler) Verify(c *echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusUnauthorized, api.ErrorResponse{Error: "invalid or expired token", Code: "INVALID_TOKEN"})
 	}
+
+	h.tracker.Capture("user.login", resp.UserID, nil)
 	return c.JSON(http.StatusOK, resp)
 }
 

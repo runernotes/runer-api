@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog"
+	"github.com/runernotes/runer-api/internal/analytics"
 	"github.com/runernotes/runer-api/internal/api"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
 )
@@ -49,6 +50,7 @@ type Handler struct {
 	freeNoteLimit int
 	billing       BillingConfig
 	stripe        StripeClient // nil when billing is disabled
+	tracker       analytics.Tracker
 }
 
 // NewHandler constructs a subscription Handler. stripeClient may be nil when
@@ -60,6 +62,7 @@ func NewHandler(
 	freeNoteLimit int,
 	billing BillingConfig,
 	stripeClient StripeClient,
+	tracker analytics.Tracker,
 ) *Handler {
 	return &Handler{
 		usersRepo:     usersRepo,
@@ -67,6 +70,7 @@ func NewHandler(
 		freeNoteLimit: freeNoteLimit,
 		billing:       billing,
 		stripe:        stripeClient,
+		tracker:       tracker,
 	}
 }
 
@@ -191,5 +195,6 @@ func (h *Handler) CreateCheckout(c *echo.Context) error {
 		Str("stripe_customer_id", customerID).
 		Msg("stripe checkout session created")
 
+	h.tracker.Capture("subscription.checkout_started", userID.String(), nil)
 	return c.JSON(http.StatusOK, CheckoutResponse{CheckoutURL: url})
 }

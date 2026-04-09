@@ -130,38 +130,43 @@ func (s *NotesService) GetNoteByID(ctx context.Context, noteID uuid.UUID, userID
 	return s.repository.FindByID(ctx, noteID, userID) // ErrNoteNotFound already surfaced
 }
 
-// UpsertNote creates or updates a note for the given user.
+// UpsertNote creates or updates a note for the given user. The returned bool
+// is true when the note was newly created and false for any update (versioned
+// update, conflict-free update, or re-push of an existing note).
 //
 // When baseVersion is non-nil, the operation is treated as a versioned update:
 // a conflict check is performed and quota is never enforced (the user is not
 // adding a new note). When baseVersion is nil, the method first checks whether
 // the note already exists:
-//   - If it exists, this is a re-push of an existing note — quota is not
-//     enforced and no conflict check is applied.
 //   - If it does not exist, this is a new-note create — quota is enforced for
 //     free-plan users before the upsert is attempted.
-func (s *NotesService) UpsertNote(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, encryptedPayload []byte, baseVersion *time.Time) (*Note, error) {
+//   - If it exists, this is a re-push of an existing note — quota is not
+//     enforced and no conflict check is applied.
+func (s *NotesService) UpsertNote(ctx context.Context, userID uuid.UUID, noteID uuid.UUID, encryptedPayload []byte, baseVersion *time.Time) (*Note, bool, error) {
+	created := false
+
 	if baseVersion != nil {
 		// Versioned update: check for conflicts, skip quota.
 		existing, err := s.repository.FindByID(ctx, noteID, userID)
 		if err != nil && !errors.Is(err, ErrNoteNotFound) {
-			return nil, err
+			return nil, false, err
 		}
 		if existing != nil && existing.UpdatedAt.After(*baseVersion) {
-			return nil, &ConflictError{ServerNote: existing}
+			return nil, false, &ConflictError{ServerNote: existing}
 		}
 	} else {
 		// No base_version: determine whether this is a create or a re-push.
 		existing, err := s.repository.FindByID(ctx, noteID, userID)
 		if err != nil && !errors.Is(err, ErrNoteNotFound) {
-			return nil, err
+			return nil, false, err
 		}
 
 		if existing == nil {
 			// New note — enforce quota for free-plan users.
 			if err := s.enforceQuota(ctx, userID); err != nil {
-				return nil, err
+				return nil, false, err
 			}
+			created = true
 		}
 		// If existing != nil, this is a re-push; no quota check needed.
 	}
@@ -173,10 +178,14 @@ func (s *NotesService) UpsertNote(ctx context.Context, userID uuid.UUID, noteID 
 	}
 
 	if err := s.repository.Upsert(ctx, note); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return s.repository.FindByID(ctx, noteID, userID)
+	saved, err := s.repository.FindByID(ctx, noteID, userID)
+	if err != nil {
+		return nil, false, err
+	}
+	return saved, created, nil
 }
 
 // enforceQuota checks whether the given user is within their note creation limit.

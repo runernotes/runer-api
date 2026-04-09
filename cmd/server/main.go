@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog/log"
 	internalpkg "github.com/runernotes/runer-api/internal"
+	"github.com/runernotes/runer-api/internal/analytics"
 	"github.com/runernotes/runer-api/internal/config"
 	"github.com/runernotes/runer-api/internal/logging"
 	internalmw "github.com/runernotes/runer-api/internal/middleware"
@@ -32,6 +33,13 @@ func main() {
 	// per-request copy stored on the request context.
 	shutdown := logging.Setup(&cfg)
 	defer shutdown()
+
+	// Create the analytics tracker. When POSTHOG_API_KEY is not set this is a
+	// no-op tracker. This is a separate PostHog client from the one used for log
+	// forwarding so that analytics events and server logs can be managed and
+	// filtered independently in PostHog.
+	tracker := analytics.New(cfg.PostHogAPIKey, cfg.PostHogEndpoint)
+	defer tracker.Close()
 
 	db, err := config.Connect(&cfg)
 	if err != nil {
@@ -61,7 +69,9 @@ func main() {
 	e.Use(internalmw.ZerologAccessLogger())
 	e.Use(internalmw.RateLimiter(cfg.RateLimitPerMinute, cfg.RateLimitBurst))
 
-	internalpkg.RegisterRoutes(e, db, &cfg)
+	internalpkg.RegisterRoutes(e, db, &cfg, internalpkg.RouteOptions{
+		Tracker: tracker,
+	})
 
 	for _, r := range e.Router().Routes() {
 		log.Info().Str("method", r.Method).Str("path", r.Path).Msg("route registered")

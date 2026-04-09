@@ -146,6 +146,7 @@ func TestLoginWithMagicLink_ValidToken(t *testing.T) {
 	resp, err := svc.LoginWithMagicLink(context.Background(), "valid-raw-token")
 	require.NoError(t, err)
 	require.NotNil(t, resp)
+	assert.Equal(t, userID.String(), resp.UserID)
 	assert.NotEmpty(t, resp.AccessToken)
 	assert.NotEmpty(t, resp.RefreshToken)
 }
