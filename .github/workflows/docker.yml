@@ -1,5 +1,8 @@
 name: Docker
 
+# Tagging convention:
+#   v1.2.3          → builds image tagged 1.2.3 + latest  → deploys to production
+#   v1.2.3-dev.1    → builds image tagged 1.2.3-dev.1 + dev → deploys to dev
 on:
   push:
     tags:
@@ -10,7 +13,7 @@ permissions:
   packages: write
 
 jobs:
-  docker:
+  build:
     name: Build & Push
     runs-on: ubuntu-latest
     steps:
@@ -30,7 +33,8 @@ jobs:
           images: ghcr.io/runernotes/runer-api
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-dev') }}
+            type=raw,value=dev,enable=${{ contains(github.ref_name, '-dev') }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -39,10 +43,34 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
 
+  deploy-prod:
+    name: Deploy (production)
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ !contains(github.ref_name, '-dev') }}
+    steps:
+      - name: Trigger deployment webhook
+        run: |
+          curl --silent --show-error --fail \
+            --request GET \
+            "${{ secrets.DEPLOY_WEBHOOK_PROD }}"
+
+  deploy-dev:
+    name: Deploy (dev)
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ contains(github.ref_name, '-dev') }}
+    steps:
+      - name: Trigger deployment webhook
+        run: |
+          curl --silent --show-error --fail \
+            --request GET \
+            "${{ secrets.DEPLOY_WEBHOOK_DEV }}"
+
   cleanup:
     name: Clean up old versions
     runs-on: ubuntu-latest
-    needs: docker
+    needs: build
     permissions:
       packages: write
     steps:
