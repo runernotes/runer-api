@@ -119,7 +119,7 @@ func RegisterRoutes(e *echo.Echo, db *gorm.DB, cfg *config.Config, opts ...Route
 
 	sender := opt.EmailSender
 	if sender == nil {
-		sender = email.NewResendSender(cfg.ResendAPIKey, cfg.EmailFrom)
+		sender = email.NewResendSender(cfg.ResendAPIKey, cfg.EmailFrom, cfg.AppBaseURL)
 	}
 	emailService := email.NewEmailService(sender)
 

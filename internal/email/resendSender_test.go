@@ -45,6 +45,8 @@ func (s *stubEmailsSvc) ListWithOptions(_ context.Context, _ *resend.ListOptions
 	return resend.ListEmailsResponse{}, nil
 }
 
+const testBaseURL = "https://api.runer.app"
+
 func TestResendSender_SendMagicLinkEmail(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -53,23 +55,23 @@ func TestResendSender_SendMagicLinkEmail(t *testing.T) {
 		expectedLink    string
 	}{
 		{
-			name:            "new user gets registration link",
+			name:            "new user gets registration link with HTTPS redirect URL",
 			isNewUser:       true,
 			expectedSubject: "Welcome to Runer — confirm your email",
-			expectedLink:    "runer://auth/new?token=tok123",
+			expectedLink:    "https://api.runer.app/api/v1/auth/verify-redirect?token=tok123",
 		},
 		{
-			name:            "existing user gets sign-in link",
+			name:            "existing user gets sign-in link with HTTPS redirect URL",
 			isNewUser:       false,
 			expectedSubject: "Your Runer sign-in link",
-			expectedLink:    "runer://auth/verify?token=tok123",
+			expectedLink:    "https://api.runer.app/api/v1/auth/verify-redirect?token=tok123",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := &stubEmailsSvc{}
-			sender := &ResendSender{emails: stub, fromAddr: "noreply@example.com"}
+			sender := &ResendSender{emails: stub, fromAddr: "noreply@example.com", baseURL: testBaseURL}
 
 			err := sender.SendMagicLinkEmail(context.Background(), "user@example.com", "tok123", tc.isNewUser)
 			require.NoError(t, err)
@@ -85,11 +87,11 @@ func TestResendSender_SendMagicLinkEmail(t *testing.T) {
 }
 
 func TestMagicLinkContent(t *testing.T) {
-	subj, link := magicLinkContent(true, "abc")
+	subj, link := magicLinkContent(true, "abc", testBaseURL)
 	assert.Equal(t, "Welcome to Runer — confirm your email", subj)
-	assert.Equal(t, "runer://auth/new?token=abc", link)
+	assert.Equal(t, "https://api.runer.app/api/v1/auth/verify-redirect?token=abc", link)
 
-	subj, link = magicLinkContent(false, "xyz")
+	subj, link = magicLinkContent(false, "xyz", testBaseURL)
 	assert.Equal(t, "Your Runer sign-in link", subj)
-	assert.Equal(t, "runer://auth/verify?token=xyz", link)
+	assert.Equal(t, "https://api.runer.app/api/v1/auth/verify-redirect?token=xyz", link)
 }
