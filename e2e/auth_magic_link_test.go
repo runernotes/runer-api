@@ -273,3 +273,63 @@ func insertExpiredRefreshToken(t *testing.T, db *gorm.DB, userID uuid.UUID) stri
 
 	return rawToken
 }
+
+// TestMagicLink_InvalidEmailFormat_Returns400 verifies that sending a malformed
+// email address to POST /auth/magic-link returns 400 with VALIDATION_ERROR and
+// does not send any magic link email.
+// A positive baseline (valid email → 200) is checked first to confirm the route works.
+func TestMagicLink_InvalidEmailFormat_Returns400(t *testing.T) {
+	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	// Positive baseline: a valid email always returns 200.
+	countBefore := mockEmail.callCount()
+	e.POST("/api/v1/auth/magic-link").
+		WithJSON(map[string]string{"email": "valid-" + uuid.NewString() + "@example.com"}).
+		Expect().
+		Status(http.StatusOK)
+
+	_ = countBefore
+
+	// Negative: a malformed email must be rejected before it reaches the service.
+	emailCountBefore := mockEmail.callCount()
+	e.POST("/api/v1/auth/magic-link").
+		WithJSON(map[string]string{"email": "not-an-email-address"}).
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "VALIDATION_ERROR")
+
+	if mockEmail.callCount() != emailCountBefore {
+		t.Errorf("expected no email to be sent for invalid email format, got %d call(s)",
+			mockEmail.callCount()-emailCountBefore)
+	}
+}
+
+// TestMagicLink_MissingEmailField_Returns400 verifies that posting an empty JSON
+// object to POST /auth/magic-link returns 400 with VALIDATION_ERROR and does not
+// send any magic link email.
+func TestMagicLink_MissingEmailField_Returns400(t *testing.T) {
+	srv, mockEmail, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	// Positive baseline: a valid request is accepted.
+	e.POST("/api/v1/auth/magic-link").
+		WithJSON(map[string]string{"email": "baseline-" + uuid.NewString() + "@example.com"}).
+		Expect().
+		Status(http.StatusOK)
+
+	// Negative: empty body must be rejected.
+	emailCountBefore := mockEmail.callCount()
+	e.POST("/api/v1/auth/magic-link").
+		WithJSON(map[string]string{}).
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "VALIDATION_ERROR")
+
+	if mockEmail.callCount() != emailCountBefore {
+		t.Errorf("expected no email to be sent for missing email field, got %d call(s)",
+			mockEmail.callCount()-emailCountBefore)
+	}
+}

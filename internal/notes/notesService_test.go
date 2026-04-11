@@ -531,6 +531,342 @@ func TestUpsertNote_WithBaseVersion_SkipsQuota(t *testing.T) {
 	assert.False(t, created, "a versioned update must not be reported as created")
 }
 
+// TestUpsertNote_ConflictError_ReturnsConflictError verifies that a versioned
+// update where the stored note's updated_at is newer than the provided baseVersion
+// returns a *ConflictError containing the current server note.
+func TestUpsertNote_ConflictError_ReturnsConflictError(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	baseVersion := time.Now().Add(-time.Minute) // client's stale version
+	serverVersion := baseVersion.Add(time.Second)    // server is newer
+
+	existing := &Note{ID: noteID, UserID: userID, UpdatedAt: serverVersion}
+
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			return existing, nil
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	_, _, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), &baseVersion)
+	require.Error(t, err)
+
+	var conflictErr *ConflictError
+	require.ErrorAs(t, err, &conflictErr, "error must be a *ConflictError")
+	assert.Equal(t, existing, conflictErr.ServerNote, "ConflictError must carry the current server note")
+}
+
+// TestUpsertNote_BetaUser_SkipsQuota verifies that a beta user can create notes
+// beyond the free plan limit without triggering a quota check — beta is unlimited.
+func TestUpsertNote_BetaUser_SkipsQuota(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	const limit = 3
+
+	usersRepo := &mockUsersRepo{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (UserPlan, error) {
+			return UserPlan{Plan: "beta"}, nil
+		},
+	}
+
+	savedNote := &Note{ID: noteID, UserID: userID}
+	upsertCalled := false
+
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			if upsertCalled {
+				return savedNote, nil
+			}
+			return nil, ErrNoteNotFound
+		},
+		countLiveNotesFn: func(_ context.Context, _ uuid.UUID) (int64, error) {
+			t.Error("CountLiveNotes must not be called for beta users")
+			return int64(limit + 10), nil
+		},
+		upsertFn: func(_ context.Context, _ *Note) error {
+			upsertCalled = true
+			return nil
+		},
+	}
+
+	svc := newServiceWithQuota(repo, usersRepo, limit)
+	note, created, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	require.NoError(t, err)
+	require.NotNil(t, note)
+	assert.True(t, created, "new note from a beta user must be reported as created")
+}
+
+// TestEnforceQuota_UserLookupFailure_PropagatesError verifies that when the
+// users repository returns an error during a quota check the error is wrapped
+// and propagated to the caller.
+func TestEnforceQuota_UserLookupFailure_PropagatesError(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	lookupErr := errors.New("user db error")
+
+	usersRepo := &mockUsersRepo{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (UserPlan, error) {
+			return UserPlan{}, lookupErr
+		},
+	}
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			return nil, ErrNoteNotFound // new note
+		},
+	}
+
+	svc := newServiceWithQuota(repo, usersRepo, 3)
+	_, _, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, lookupErr)
+}
+
+// TestEnforceQuota_CountLiveNotes_Failure_PropagatesError verifies that when
+// CountLiveNotes fails the error is wrapped and returned to the caller.
+func TestEnforceQuota_CountLiveNotes_Failure_PropagatesError(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	noteID := uuid.New()
+	countErr := errors.New("count query failed")
+
+	usersRepo := &mockUsersRepo{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (UserPlan, error) {
+			return UserPlan{Plan: "free"}, nil
+		},
+	}
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			return nil, ErrNoteNotFound
+		},
+		countLiveNotesFn: func(_ context.Context, _ uuid.UUID) (int64, error) {
+			return 0, countErr
+		},
+	}
+
+	svc := newServiceWithQuota(repo, usersRepo, 3)
+	_, _, err := svc.UpsertNote(ctx, userID, noteID, []byte("data"), nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, countErr)
+}
+
+// ---- GetNoteByID tests ----
+
+// TestGetNoteByID_Found verifies that when the repository returns a note it is
+// returned to the caller without modification.
+func TestGetNoteByID_Found(t *testing.T) {
+	ctx := context.Background()
+	noteID := uuid.New()
+	userID := uuid.New()
+	expected := &Note{ID: noteID, UserID: userID}
+
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, nid uuid.UUID, uid uuid.UUID) (*Note, error) {
+			assert.Equal(t, noteID, nid)
+			assert.Equal(t, userID, uid)
+			return expected, nil
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	got, err := svc.GetNoteByID(ctx, noteID, userID)
+	require.NoError(t, err)
+	assert.Equal(t, expected, got)
+}
+
+// TestGetNoteByID_NotFound_PropagatesErrNoteNotFound verifies that when the note
+// does not exist ErrNoteNotFound is propagated to the caller.
+func TestGetNoteByID_NotFound_PropagatesErrNoteNotFound(t *testing.T) {
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			return nil, ErrNoteNotFound
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	_, err := svc.GetNoteByID(context.Background(), uuid.New(), uuid.New())
+	assert.ErrorIs(t, err, ErrNoteNotFound)
+}
+
+// TestGetNoteByID_RepoError_PropagatesError verifies that a generic repository
+// error is propagated to the caller unchanged.
+func TestGetNoteByID_RepoError_PropagatesError(t *testing.T) {
+	dbErr := errors.New("db error")
+	repo := &mockRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			return nil, dbErr
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	_, err := svc.GetNoteByID(context.Background(), uuid.New(), uuid.New())
+	assert.ErrorIs(t, err, dbErr)
+}
+
+// ---- TrashNote tests ----
+
+// TestTrashNote_Success verifies that TrashNote delegates to the repository
+// and returns no error on success.
+func TestTrashNote_Success(t *testing.T) {
+	noteID := uuid.New()
+	userID := uuid.New()
+	called := false
+
+	repo := &mockRepository{
+		trashFn: func(_ context.Context, nid uuid.UUID, uid uuid.UUID) error {
+			assert.Equal(t, noteID, nid)
+			assert.Equal(t, userID, uid)
+			called = true
+			return nil
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	err := svc.TrashNote(context.Background(), noteID, userID)
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
+// TestTrashNote_NotFound_PropagatesError verifies that ErrNoteNotFound from the
+// repository is propagated to the caller.
+func TestTrashNote_NotFound_PropagatesError(t *testing.T) {
+	repo := &mockRepository{
+		trashFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+			return ErrNoteNotFound
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	err := svc.TrashNote(context.Background(), uuid.New(), uuid.New())
+	assert.ErrorIs(t, err, ErrNoteNotFound)
+}
+
+// ---- RestoreNote tests ----
+
+// TestRestoreNote_Success_ReturnsUpdatedNote verifies that RestoreNote calls
+// Restore and then FindByID, returning the refreshed note.
+func TestRestoreNote_Success_ReturnsUpdatedNote(t *testing.T) {
+	noteID := uuid.New()
+	userID := uuid.New()
+	restored := &Note{ID: noteID, UserID: userID, EncryptedPayload: []byte("data")}
+
+	repo := &mockRepository{
+		restoreFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) error { return nil },
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			return restored, nil
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	got, err := svc.RestoreNote(context.Background(), noteID, userID)
+	require.NoError(t, err)
+	assert.Equal(t, restored, got)
+}
+
+// TestRestoreNote_RestoreFailure_PropagatesError verifies that when repo.Restore
+// returns an error it is propagated and FindByID is never called.
+func TestRestoreNote_RestoreFailure_PropagatesError(t *testing.T) {
+	restoreErr := errors.New("restore db error")
+
+	repo := &mockRepository{
+		restoreFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+			return restoreErr
+		},
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) {
+			require.Fail(t, "FindByID must not be called when Restore fails")
+			return nil, nil
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	_, err := svc.RestoreNote(context.Background(), uuid.New(), uuid.New())
+	assert.ErrorIs(t, err, restoreErr)
+}
+
+// TestRestoreNote_FindAfterRestore_PropagatesError verifies that when Restore
+// succeeds but the subsequent FindByID fails the error is propagated.
+func TestRestoreNote_FindAfterRestore_PropagatesError(t *testing.T) {
+	findErr := errors.New("find db error")
+
+	repo := &mockRepository{
+		restoreFn:  func(_ context.Context, _ uuid.UUID, _ uuid.UUID) error { return nil },
+		findByIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (*Note, error) { return nil, findErr },
+	}
+
+	svc := newServiceNoQuota(repo)
+	_, err := svc.RestoreNote(context.Background(), uuid.New(), uuid.New())
+	assert.ErrorIs(t, err, findErr)
+}
+
+// ---- PurgeNote tests ----
+
+// TestPurgeNote_Success verifies that PurgeNote delegates to the repository.
+func TestPurgeNote_Success(t *testing.T) {
+	noteID := uuid.New()
+	userID := uuid.New()
+	called := false
+
+	repo := &mockRepository{
+		purgeFn: func(_ context.Context, nid uuid.UUID, uid uuid.UUID) error {
+			assert.Equal(t, noteID, nid)
+			assert.Equal(t, userID, uid)
+			called = true
+			return nil
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	err := svc.PurgeNote(context.Background(), noteID, userID)
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
+// TestPurgeNote_NotFound_PropagatesError verifies that ErrNoteNotFound from the
+// repository is propagated to the caller.
+func TestPurgeNote_NotFound_PropagatesError(t *testing.T) {
+	repo := &mockRepository{
+		purgeFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+			return ErrNoteNotFound
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	err := svc.PurgeNote(context.Background(), uuid.New(), uuid.New())
+	assert.ErrorIs(t, err, ErrNoteNotFound)
+}
+
+// ---- Full sync cursor edge case ----
+
+// TestGetNotesSince_FullSync_WithCursor_NoTombstones verifies that when a
+// cursor is present during a full sync (subsequent pages), tombstones are
+// NOT fetched — the spec states tombstones only appear on the first full-sync page.
+func TestGetNotesSince_FullSync_WithCursor_NoTombstones(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	cursor := &NoteCursor{AfterUpdatedAt: time.Now(), AfterNoteID: uuid.New()}
+
+	tombstonesCalled := false
+
+	repo := &mockRepository{
+		findAllPaginatedFn: func(_ context.Context, _ uuid.UUID, _ int, _ time.Time, _ uuid.UUID) ([]Note, error) {
+			return nil, nil
+		},
+		findAllTombstonesFn: func(_ context.Context, _ uuid.UUID) ([]NoteTombstone, error) {
+			tombstonesCalled = true
+			return []NoteTombstone{{NoteID: uuid.New()}}, nil
+		},
+	}
+
+	svc := newServiceNoQuota(repo)
+	_, tombstones, _, err := svc.GetNotesSince(ctx, userID, nil, cursor, deltaPageSize)
+	require.NoError(t, err)
+	assert.False(t, tombstonesCalled, "tombstones must not be fetched on subsequent full-sync pages")
+	assert.Empty(t, tombstones)
+}
+
 // TestUpsertNote_ExistingNote_NoBaseVersion_SkipsQuota verifies that a re-push
 // (PUT without base_version to a note_id that already exists) does not trigger
 // a quota check — the user is not adding a new note.

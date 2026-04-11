@@ -133,3 +133,128 @@ func TestGetByID_DelegatesToRepository(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expected, got)
 }
+
+// TestGetByID_RepositoryError_Propagates verifies that a repository error is
+// propagated to the caller unchanged.
+func TestGetByID_RepositoryError_Propagates(t *testing.T) {
+	ctx := context.Background()
+	dbErr := errors.New("db error")
+
+	repo := &mockUsersRepository{
+		findByIDFn: func(_ context.Context, _ uuid.UUID) (User, error) {
+			return User{}, dbErr
+		},
+	}
+
+	svc := NewUsersService(repo)
+	_, err := svc.GetByID(ctx, uuid.New())
+	assert.ErrorIs(t, err, dbErr)
+}
+
+// TestCreate_DelegatesToRepository verifies that Create forwards to the
+// repository and returns the created user.
+func TestCreate_DelegatesToRepository(t *testing.T) {
+	ctx := context.Background()
+	input := User{Email: "new@example.com", Name: "New"}
+	created := User{ID: uuid.New(), Email: input.Email, Name: input.Name}
+
+	repo := &mockUsersRepository{
+		createFn: func(_ context.Context, u User) (User, error) {
+			return created, nil
+		},
+	}
+
+	svc := NewUsersService(repo)
+	got, err := svc.Create(ctx, input)
+	require.NoError(t, err)
+	assert.Equal(t, created, got)
+}
+
+// TestCreate_RepositoryError_Propagates verifies that a database error during
+// user creation is returned to the caller.
+func TestCreate_RepositoryError_Propagates(t *testing.T) {
+	ctx := context.Background()
+	dbErr := errors.New("insert failed")
+
+	repo := &mockUsersRepository{
+		createFn: func(_ context.Context, _ User) (User, error) {
+			return User{}, dbErr
+		},
+	}
+
+	svc := NewUsersService(repo)
+	_, err := svc.Create(ctx, User{Email: "x@example.com", Name: "X"})
+	assert.ErrorIs(t, err, dbErr)
+}
+
+// TestUpdate_DelegatesToRepository verifies that Update forwards to the
+// repository and returns the updated user.
+func TestUpdate_DelegatesToRepository(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	updated := User{ID: userID, Email: "u@example.com", Name: "Updated"}
+
+	repo := &mockUsersRepository{
+		updateFn: func(_ context.Context, u User) (User, error) {
+			return updated, nil
+		},
+	}
+
+	svc := NewUsersService(repo)
+	got, err := svc.Update(ctx, User{ID: userID})
+	require.NoError(t, err)
+	assert.Equal(t, updated, got)
+}
+
+// TestUpdate_RepositoryError_Propagates verifies that a database error during
+// update is returned to the caller.
+func TestUpdate_RepositoryError_Propagates(t *testing.T) {
+	dbErr := errors.New("update failed")
+
+	repo := &mockUsersRepository{
+		updateFn: func(_ context.Context, _ User) (User, error) {
+			return User{}, dbErr
+		},
+	}
+
+	svc := NewUsersService(repo)
+	_, err := svc.Update(context.Background(), User{ID: uuid.New()})
+	assert.ErrorIs(t, err, dbErr)
+}
+
+// TestDelete_DelegatesToRepository verifies that Delete forwards the user ID to
+// the repository and returns no error on success.
+func TestDelete_DelegatesToRepository(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	called := false
+
+	repo := &mockUsersRepository{
+		deleteFn: func(_ context.Context, id uuid.UUID) error {
+			assert.Equal(t, userID, id)
+			called = true
+			return nil
+		},
+	}
+
+	svc := NewUsersService(repo)
+	err := svc.Delete(ctx, userID)
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
+// TestDelete_RepositoryError_Propagates verifies that a database error during
+// deletion is returned to the caller.
+func TestDelete_RepositoryError_Propagates(t *testing.T) {
+	dbErr := errors.New("delete failed")
+
+	repo := &mockUsersRepository{
+		deleteFn: func(_ context.Context, _ uuid.UUID) error {
+			return dbErr
+		},
+	}
+
+	svc := NewUsersService(repo)
+	err := svc.Delete(context.Background(), uuid.New())
+	assert.ErrorIs(t, err, dbErr)
+}

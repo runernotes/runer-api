@@ -474,3 +474,77 @@ func TestRestoreActiveNoteIsIdempotent(t *testing.T) {
 	restoreResp.Value("trashed_at").IsNull()
 	restoreResp.HasValue("note_id", noteID)
 }
+
+// TestTrashNoteNonUUIDPath_Returns400 verifies that DELETE /notes/:id with a
+// path segment that is not a valid UUID returns 400 with INVALID_PARAM.
+// A positive baseline (valid UUID → 204) is checked first to prove the route exists.
+func TestTrashNoteNonUUIDPath_Returns400(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// Positive baseline: a real UUID path succeeds (note may not exist → 404 is fine,
+	// the important thing is that it's not a 400 from path parsing).
+	noteID := createNote(t, e, token)
+	e.DELETE("/api/v1/notes/"+noteID).
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusNoContent)
+
+	// Negative: non-UUID path must be rejected before even hitting the service.
+	e.DELETE("/api/v1/notes/not-a-valid-uuid").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "INVALID_PARAM")
+}
+
+// TestRestoreNoteNonUUIDPath_Returns400 verifies that POST /notes/:id/restore
+// with a non-UUID path segment returns 400 with INVALID_PARAM.
+func TestRestoreNoteNonUUIDPath_Returns400(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// Positive baseline: valid UUID path is accepted.
+	noteID := createNote(t, e, token)
+	e.POST("/api/v1/notes/"+noteID+"/restore").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusOK)
+
+	// Negative: non-UUID path → 400 INVALID_PARAM.
+	e.POST("/api/v1/notes/not-a-valid-uuid/restore").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "INVALID_PARAM")
+}
+
+// TestPurgeNoteNonUUIDPath_Returns400 verifies that DELETE /notes/:id/purge
+// with a non-UUID path segment returns 400 with INVALID_PARAM.
+func TestPurgeNoteNonUUIDPath_Returns400(t *testing.T) {
+	srv, mock, _ := newTestServer(t)
+	e := newExpect(t, srv)
+
+	token := registerAndLogin(t, e, mock, uuid.NewString())
+
+	// Positive baseline: valid UUID path is accepted.
+	noteID := createNote(t, e, token)
+	e.DELETE("/api/v1/notes/"+noteID+"/purge").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusNoContent)
+
+	// Negative: non-UUID path → 400 INVALID_PARAM.
+	e.DELETE("/api/v1/notes/not-a-valid-uuid/purge").
+		WithHeader("Authorization", "Bearer "+token).
+		Expect().
+		Status(http.StatusBadRequest).
+		JSON().Object().
+		HasValue("code", "INVALID_PARAM")
+}
