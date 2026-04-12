@@ -122,11 +122,34 @@ func (c *Config) Validate() error {
 	if c.JWTSecret == "" {
 		return errors.New("JWT_SECRET must be set")
 	}
+	if len(c.JWTSecret) < 32 {
+		return errors.New("JWT_SECRET must be at least 32 bytes")
+	}
+
+	// Always required — magic link auth sends email regardless of billing.
+	if c.ResendAPIKey == "" {
+		return errors.New("RESEND_API_KEY must be set")
+	}
+	if c.EmailFrom == "" {
+		return errors.New("EMAIL_FROM must be set")
+	}
+
 	if c.RateLimitPerMinute <= 0 {
 		return errors.New("RATE_LIMIT_PER_MINUTE must be greater than 0")
 	}
 	if c.RateLimitBurst <= 0 {
 		return errors.New("RATE_LIMIT_BURST must be greater than 0")
+	}
+
+	// Production safety: ensure real origins are configured so the client is
+	// never silently blocked by leftover localhost defaults.
+	if c.IsProduction() {
+		if c.CORSAllowedOrigins == "" {
+			return errors.New("CORS_ALLOWED_ORIGINS must be set in production")
+		}
+		if strings.Contains(c.CORSAllowedOrigins, "localhost") {
+			return errors.New("CORS_ALLOWED_ORIGINS must not contain localhost in production")
+		}
 	}
 
 	if c.BillingEnabled {
@@ -139,9 +162,6 @@ func (c *Config) Validate() error {
 		if c.StripePriceID == "" {
 			return errors.New("STRIPE_PRICE_ID must be set when BILLING_ENABLED is true")
 		}
-		if c.ResendAPIKey == "" {
-			return errors.New("RESEND_API_KEY must be set when BILLING_ENABLED is true")
-		}
 	}
 
 	return nil
@@ -153,8 +173,13 @@ func setDefaults() {
 	// 15m matches SPEC-API §4.1 / NFR-1: short access token TTL minimises the window
 	// during which a revoked or plan-changed token remains valid.
 	viper.SetDefault("JWT_TOKEN_DURATION", "15m")
-	viper.SetDefault("JWT_REFRESH_TOKEN_DURATION", "168h")
-	viper.SetDefault("MAGIC_LINK_TOKEN_DURATION", "1h")
+	// 720h = 30 days matches SPEC-API §3.3/§4: refresh tokens live for 30 days.
+	// A previous regression defaulted to 168h (7 days), logging users out 4× too often.
+	viper.SetDefault("JWT_REFRESH_TOKEN_DURATION", "720h")
+	// 15m matches SPEC-API §3.2/§4.5.6/§8: short TTL minimises the replay window
+	// for tokens that leak via email headers, forwarding rules, or log files.
+	// A previous regression defaulted to 1h, 4× the specified value.
+	viper.SetDefault("MAGIC_LINK_TOKEN_DURATION", "15m")
 	viper.SetDefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/runer_notes")
 	viper.SetDefault("DATABASE_LOG_LEVEL", "warn")
 	viper.SetDefault("DATABASE_MAX_IDLE_CONNS", 10)
