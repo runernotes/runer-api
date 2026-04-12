@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -80,7 +82,33 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := (echo.StartConfig{Address: fmt.Sprintf(":%d", cfg.Port), HideBanner: true}).Start(ctx, e); err != nil {
+	sc := buildStartConfig(cfg.Port, func(err error) {
+		log.Error().Err(err).Msg("server shutdown timed out — some in-flight connections may have been dropped")
+	})
+
+	if err := sc.Start(ctx, e); err != nil {
 		log.Fatal().Err(err).Msg("server failed")
+	}
+}
+
+// buildStartConfig constructs the Echo StartConfig with production-safe defaults:
+//   - 30-second graceful drain window so in-flight requests survive a SIGTERM.
+//   - 120-second idle timeout to reclaim long-lived idle connections.
+//   - ReadTimeout / WriteTimeout are set to 30 s by Echo v5 internally.
+//
+// The onShutdownError callback is invoked when active connections are not
+// drained within the grace period. Pass nil to use Echo's default slog logger.
+func buildStartConfig(port int, onShutdownError func(error)) echo.StartConfig {
+	return echo.StartConfig{
+		Address:         fmt.Sprintf(":%d", port),
+		HideBanner:      true,
+		GracefulTimeout: 30 * time.Second,
+		OnShutdownError: onShutdownError,
+		// Echo v5 sets ReadTimeout/WriteTimeout to 30 s by default.
+		// We only need to add IdleTimeout here.
+		BeforeServeFunc: func(s *http.Server) error {
+			s.IdleTimeout = 120 * time.Second
+			return nil
+		},
 	}
 }
