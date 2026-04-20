@@ -1,5 +1,6 @@
 .PHONY: lint test e2e build dev docker-build docker-run verify \
-        version release-dev release-minor-dev release-prod release-patch release-minor
+        version release-dev release-minor-dev release-prod release-patch release-minor \
+        check-changelog changelog-version changelog-prod changelog-patch changelog-minor changelog-major
 
 lint:
 	golangci-lint run
@@ -27,6 +28,126 @@ docker-run:
 
 verify: lint test e2e build clean
 	@echo "All checks passed."
+
+# ---------------------------------------------------------------------------
+# Changelog helpers — insert the next version section into CHANGELOG.md.
+# Each target mirrors its release counterpart exactly. Run changelog-version
+# to preview what each target would insert given the current tag.
+#
+#   Target              From prod v1.2.3        From dev v1.2.3-dev.1
+#   ──────────────────  ──────────────────────  ──────────────────────
+#   changelog-prod      ✗ error                 → inserts [1.2.3]
+#   changelog-patch     → inserts [1.2.4]       ✗ error
+#   changelog-minor     → inserts [1.3.0]       ✗ error
+#   changelog-major     → inserts [2.0.0]       ✗ error
+#
+# Typical flow:
+#   changelog-prod / changelog-patch / changelog-minor → fill in CHANGELOG.md
+#   → matching release target
+# ---------------------------------------------------------------------------
+
+# Print the current tag and preview what each changelog target would insert.
+changelog-version:
+	@latest=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
+	base=$$(echo "$$latest" | sed -E 's/^v//; s/-dev\.[0-9]+$$//'); \
+	maj=$$(echo "$$base" | cut -d. -f1); \
+	min=$$(echo "$$base" | cut -d. -f2); \
+	pat=$$(echo "$$base" | cut -d. -f3); \
+	is_dev=$$(echo "$$latest" | grep -qE '\-dev\.' && echo 1 || echo 0); \
+	echo ""; \
+	echo "  Current tag: $$latest"; \
+	echo ""; \
+	echo "  Target              Inserts into CHANGELOG.md"; \
+	echo "  ──────────────────  ──────────────────────────"; \
+	if [ "$$is_dev" = "1" ]; then \
+	  echo "  changelog-prod      [$$base]"; \
+	  echo "  changelog-patch     (error — on dev tag, use changelog-prod first)"; \
+	  echo "  changelog-minor     (error — on dev tag, use changelog-prod first)"; \
+	  echo "  changelog-major     (error — on dev tag, use changelog-prod first)"; \
+	else \
+	  echo "  changelog-prod      (error — nothing to promote)"; \
+	  echo "  changelog-patch     [$$maj.$$min.$$((pat + 1))]"; \
+	  echo "  changelog-minor     [$$maj.$$((min + 1)).0]"; \
+	  echo "  changelog-major     [$$((maj + 1)).0.0]"; \
+	fi; \
+	echo ""
+
+# Mirrors release-prod: must be on a dev tag — promotes base version (e.g. v0.4.3-dev.2 → 0.4.3)
+changelog-prod:
+	@latest=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
+	if ! echo "$$latest" | grep -qE '\-dev\.'; then \
+	  echo "Error: not on a dev tag ($$latest). Nothing to promote."; \
+	  exit 1; \
+	fi; \
+	ver=$$(echo "$$latest" | sed -E 's/^v//; s/-dev\.[0-9]+$$//'); \
+	date=$$(date +%Y-%m-%d); \
+	awk -v ver="$$ver" -v date="$$date" \
+	  '/and this project adheres/{print; print ""; print "## [" ver "] - " date; print "### Added"; print ""; print "### Fixed"; print ""; print "### Changed"; print ""; next} {print}' \
+	  CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md; \
+	echo "Added [$$ver] - $$date to CHANGELOG.md — fill in the details then run: make release-prod"
+
+# Mirrors release-patch: must be on a prod tag
+changelog-patch:
+	@latest=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
+	if echo "$$latest" | grep -qE '\-dev\.'; then \
+	  echo "Error: on dev tag ($$latest). Use 'make changelog-prod' to prepare notes for the promotion to prod first."; \
+	  exit 1; \
+	fi; \
+	base=$$(echo "$$latest" | sed 's/^v//'); \
+	maj=$$(echo "$$base" | cut -d. -f1); \
+	min=$$(echo "$$base" | cut -d. -f2); \
+	pat=$$(echo "$$base" | cut -d. -f3); \
+	ver="$$maj.$$min.$$((pat + 1))"; \
+	date=$$(date +%Y-%m-%d); \
+	awk -v ver="$$ver" -v date="$$date" \
+	  '/and this project adheres/{print; print ""; print "## [" ver "] - " date; print "### Added"; print ""; print "### Fixed"; print ""; print "### Changed"; print ""; next} {print}' \
+	  CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md; \
+	echo "Added [$$ver] - $$date to CHANGELOG.md — fill in the details then run: make release-patch"
+
+# Mirrors release-minor: must be on a prod tag
+changelog-minor:
+	@latest=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
+	if echo "$$latest" | grep -qE '\-dev\.'; then \
+	  echo "Error: on dev tag ($$latest). Use 'make changelog-prod' to prepare notes for the promotion to prod first."; \
+	  exit 1; \
+	fi; \
+	base=$$(echo "$$latest" | sed 's/^v//'); \
+	maj=$$(echo "$$base" | cut -d. -f1); \
+	min=$$(echo "$$base" | cut -d. -f2); \
+	ver="$$maj.$$((min + 1)).0"; \
+	date=$$(date +%Y-%m-%d); \
+	awk -v ver="$$ver" -v date="$$date" \
+	  '/and this project adheres/{print; print ""; print "## [" ver "] - " date; print "### Added"; print ""; print "### Fixed"; print ""; print "### Changed"; print ""; next} {print}' \
+	  CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md; \
+	echo "Added [$$ver] - $$date to CHANGELOG.md — fill in the details then run: make release-minor"
+
+# Mirrors release-major: must be on a prod tag
+changelog-major:
+	@latest=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
+	if echo "$$latest" | grep -qE '\-dev\.'; then \
+	  echo "Error: on dev tag ($$latest). Use 'make changelog-prod' to prepare notes for the promotion to prod first."; \
+	  exit 1; \
+	fi; \
+	base=$$(echo "$$latest" | sed 's/^v//'); \
+	maj=$$(echo "$$base" | cut -d. -f1); \
+	ver="$$((maj + 1)).0.0"; \
+	date=$$(date +%Y-%m-%d); \
+	awk -v ver="$$ver" -v date="$$date" \
+	  '/and this project adheres/{print; print ""; print "## [" ver "] - " date; print "### Added"; print ""; print "### Fixed"; print ""; print "### Changed"; print ""; next} {print}' \
+	  CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md; \
+	echo "Added [$$ver] - $$date to CHANGELOG.md — fill in the details then run: make release-major"
+
+# Internal: confirm CHANGELOG.md has an entry for VERSION (semver without 'v').
+# Call as: $(MAKE) check-changelog VERSION=1.2.3
+check-changelog:
+	@if ! grep -qE "^## \[$(VERSION)\]" CHANGELOG.md; then \
+	  echo ""; \
+	  echo "  Error: CHANGELOG.md has no entry for [$(VERSION)]."; \
+	  echo "  Add a '## [$(VERSION)] - YYYY-MM-DD' section before tagging."; \
+	  echo ""; \
+	  exit 1; \
+	fi; \
+	echo "  CHANGELOG.md entry for [$(VERSION)] found."
 
 # ---------------------------------------------------------------------------
 # Release
@@ -124,6 +245,7 @@ release-prod: verify
 	fi; \
 	base=$$(echo "$$latest" | sed -E 's/^v//; s/-dev\.[0-9]+$$//'); \
 	tag="v$$base"; \
+	$(MAKE) --no-print-directory check-changelog VERSION="$$base"; \
 	echo "Promoting $$latest → $$tag"; \
 	git tag "$$tag" && git push origin "$$tag"
 
@@ -139,7 +261,9 @@ release-patch: verify
 	major=$$(echo "$$base" | cut -d. -f1); \
 	minor=$$(echo "$$base" | cut -d. -f2); \
 	patch=$$(echo "$$base" | cut -d. -f3); \
-	tag="v$$major.$$minor.$$((patch + 1))"; \
+	next="$$major.$$minor.$$((patch + 1))"; \
+	$(MAKE) --no-print-directory check-changelog VERSION="$$next"; \
+	tag="v$$next"; \
 	echo "Tagging: $$tag"; \
 	git tag "$$tag" && git push origin "$$tag"
 
@@ -154,6 +278,8 @@ release-minor: verify
 	base=$$(echo "$$latest" | sed 's/^v//'); \
 	major=$$(echo "$$base" | cut -d. -f1); \
 	minor=$$(echo "$$base" | cut -d. -f2); \
-	tag="v$$major.$$((minor + 1)).0"; \
+	next="$$major.$$((minor + 1)).0"; \
+	$(MAKE) --no-print-directory check-changelog VERSION="$$next"; \
+	tag="v$$next"; \
 	echo "Tagging: $$tag"; \
 	git tag "$$tag" && git push origin "$$tag"
