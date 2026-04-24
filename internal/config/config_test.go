@@ -190,8 +190,10 @@ func TestConfig_Validate_JWTSecretMinLength(t *testing.T) {
 	}
 }
 
-// TestConfig_Validate_ProductionCORS locks in the Task-5 fix: a production deploy
-// must not boot with localhost origins, which would silently block real clients.
+// TestConfig_Validate_ProductionCORS locks in the production CORS rules:
+//   - CORS_ALLOWED_ORIGINS must be set.
+//   - Localhost origins with a port (dev-server URLs) must not be present.
+//   - Capacitor mobile origins (no port) are explicitly allowed.
 func TestConfig_Validate_ProductionCORS(t *testing.T) {
 	t.Parallel()
 
@@ -200,31 +202,56 @@ func TestConfig_Validate_ProductionCORS(t *testing.T) {
 		origins string
 		wantErr string
 	}{
+		// ── must-fail cases ─────────────────────────────────────────────────────
 		{
 			"empty origins in production",
 			"",
 			"CORS_ALLOWED_ORIGINS must be set in production",
 		},
 		{
-			"localhost origin in production",
+			"Vite dev-server origin rejected in production",
 			"http://localhost:5173",
-			"CORS_ALLOWED_ORIGINS must not contain localhost in production",
+			"must not contain localhost dev-server origins in production",
 		},
 		{
-			"localhost mixed with real origin in production",
+			"Tauri dev-server origin rejected in production",
+			"http://localhost:1420",
+			"must not contain localhost dev-server origins in production",
+		},
+		{
+			"dev-server origin mixed with real origin rejected",
 			"https://runer.app,http://localhost:5173",
-			"CORS_ALLOWED_ORIGINS must not contain localhost in production",
+			"must not contain localhost dev-server origins in production",
+		},
+		// ── must-pass cases ─────────────────────────────────────────────────────
+		{
+			"proper production domain only",
+			"https://runer.app",
+			"",
 		},
 		{
-			"real origins only in production",
+			"Capacitor iOS origin allowed (capacitor://localhost)",
+			"https://runer.app,capacitor://localhost",
+			"",
+		},
+		{
+			"Capacitor Android origin allowed (http://localhost)",
+			"https://runer.app,http://localhost",
+			"",
+		},
+		{
+			"Electron origin allowed (app://localhost)",
+			"https://runer.app,app://localhost",
+			"",
+		},
+		{
+			"all client origins together allowed",
+			"https://runer.app,capacitor://localhost,http://localhost,app://localhost",
+			"",
+		},
+		{
+			"non-localhost domain containing localhost as substring allowed",
 			"https://runer.app,app://localhost.runer.com",
-			// "localhost" substring in a domain like "localhost.runer.com" is intentionally
-			// caught — operators should use the actual production domain only.
-			"CORS_ALLOWED_ORIGINS must not contain localhost in production",
-		},
-		{
-			"proper production origins",
-			"https://runer.app,capacitor://runer.app",
 			"",
 		},
 	}

@@ -147,8 +147,14 @@ func (c *Config) Validate() error {
 		if c.CORSAllowedOrigins == "" {
 			return errors.New("CORS_ALLOWED_ORIGINS must be set in production")
 		}
-		if strings.Contains(c.CORSAllowedOrigins, "localhost") {
-			return errors.New("CORS_ALLOWED_ORIGINS must not contain localhost in production")
+		// Reject localhost origins that carry a port number — those are local
+		// development server URLs (e.g. http://localhost:5173) that must never
+		// reach production. Capacitor mobile origins have no port and are valid
+		// production origins: capacitor://localhost (iOS), http://localhost (Android).
+		for _, origin := range c.ParsedCORSOrigins() {
+			if strings.Contains(origin, "localhost:") {
+				return fmt.Errorf("CORS_ALLOWED_ORIGINS must not contain localhost dev-server origins in production (found: %s)", origin)
+			}
 		}
 	}
 
